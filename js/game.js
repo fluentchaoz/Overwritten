@@ -92,7 +92,7 @@
       t: 0, over: null, overT: 0, form, meta: { hp: mv('hp'), dmg: mv('dmg'), spd: mv('spd'), mag: mv('mag'), rr: mv('rr'), rev: mv('rev') },
       eid: 0, kills: 0, level: 1, xp: 0, pending: 0, choices: null,
       rerolls: mv('rr'), revives: mv('rev'),
-      p: { x: 0, y: 0, hp: maxhp, maxhp, invuln: 0, face: 1, fx: 1, fy: 0, hist: [], histT: 0, dashCd: 0, mx: 0, my: 0, lastTrailX: 0, lastTrailY: 0 },
+      p: { x: 0, y: 0, hp: maxhp, maxhp, invuln: 0, face: 1, fx: 1, fy: 0, hist: [], histT: 0, dashCd: 0, aim: 0, cox: 200, coy: 0, cx: 200, cy: 0, lastTrailX: 0, lastTrailY: 0 },
       enemies: [], shots: [], eshots: [], bits: [], fx: [], parts: [], texts: [], msgs: [], hazards: [], timers: [],
       weapons: [], pas: {}, grid: new Map(),
       spawnAcc: 0, eliteT: 60, purge: 0, bossSpawned: false, boss: null, bossDead: false, portal: null,
@@ -186,8 +186,8 @@
     const bossLive = G.boss && !G.boss.dead;
     // Regular spawns
     const avail = Object.keys(OW.ENEMIES).filter((k) => k !== 'boss' && OW.ENEMIES[k].from <= t);
-    const rate = (2.6 + t * 0.045) * (1 + 0.18 * G.purge) * (bossLive ? 0.5 : G.bossDead ? 0.7 : 1);
-    const cap = Math.min(MAX_ENEMIES, 18 + t * 0.85 + G.purge * 15);
+    const rate = (2.2 + t * 0.045) * (1 + 0.18 * G.purge) * (bossLive ? 0.5 : G.bossDead ? 0.7 : 1);
+    const cap = Math.min(MAX_ENEMIES, 15 + t * 0.85 + G.purge * 15);
     G.spawnAcc = Math.min(G.spawnAcc + dt * rate, 4);
     while (G.spawnAcc >= 1 && G.enemies.length < cap) {
       G.spawnAcc -= 1;
@@ -455,30 +455,50 @@
     return c * s > 0 ? '\\' : '/';
   }
   function shoot(G, ang, dmg, o) {
-    const sp = o.speed || 380;
+    const sp = o.speed || 400;
     G.shots.push({
-      x: G.p.x, y: G.p.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, dmg, r: o.r || 9, life: 1.7,
-      pierce: o.pierce || 0, hits: [], hom: o.hom || null, ch: o.ch || dirChar(ang), col: o.col || '#5ee1ff', dead: false, ang, sp,
+      x: G.p.x, y: G.p.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, dmg, r: o.r || 10, life: 1.7,
+      pierce: o.pierce || 0, hits: [], ch: o.ch || dirChar(ang), col: o.col || '#5ee1ff', dead: false, ang, sp,
     });
+  }
+
+  // Where the weapons point. The cursor decides; the Lock-On passive bends the aim toward enemies:
+  // lv1 = narrow cone around the cursor line, lv2 = wide cone, lv3 = aims for you (nearest enemy).
+  function aimAt(G) {
+    const p = G.p, lock = G.pas.lock || 0;
+    if (lock > 0) {
+      const cone = lock >= 3 ? Math.PI : lock === 2 ? 0.85 : 0.4;
+      let best = null, bs = 1e9;
+      for (const e of G.enemies) {
+        if (!targetable(e)) continue;
+        const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy);
+        if (d > 720) continue;
+        let da = Math.atan2(dy, dx) - p.aim;
+        da = Math.atan2(Math.sin(da), Math.cos(da));
+        if (Math.abs(da) > cone) continue;
+        const score = lock >= 3 ? d : Math.abs(da) * 260 + d * 0.4;
+        if (score < bs) { bs = score; best = e; }
+      }
+      if (best) return { ang: Math.atan2(best.y - p.y, best.x - p.x), t: best };
+    }
+    return { ang: p.aim, t: null };
   }
 
   const FIRE = {
     grep(G, w) {
-      const l = w.lv, M = G.mod, p = G.p;
+      const l = w.lv, M = G.mod;
       const amt = 1 + Math.floor(l / 2) + M.amt;
       const dmg = 6 * (1 + 0.18 * (l - 1)) * M.dmg * (w.evolved ? 1.5 : 1);
-      const ts = nearest(G, p.x, p.y, amt, 650);
-      if (!ts.length) return 0;
+      const aim = aimAt(G);
       for (let i = 0; i < amt; i++) {
-        const t = ts[i % ts.length];
-        const a = Math.atan2(t.y - p.y, t.x - p.x) + (i >= ts.length ? rr(-0.4, 0.4) : 0);
-        shoot(G, a, dmg, { pierce: (l >= 5 ? 1 : 0) + (w.evolved ? 2 : 0), hom: t, r: w.evolved ? 11 : 9 });
+        const a = aim.ang + (i - (amt - 1) / 2) * 0.13;
+        shoot(G, a, dmg, { pierce: (l >= 3 ? 1 : 0) + (l >= 6 ? 1 : 0) + (w.evolved ? 2 : 0), r: w.evolved ? 12 : 10 });
       }
       if (w.evolved) {
         const base = G.t * 1.7;
-        for (let k = 0; k < 8; k++) shoot(G, base + (k * TAU) / 8, dmg * 0.8, { pierce: 2, col: '#e0a8ff', r: 10 });
+        for (let k = 0; k < 8; k++) shoot(G, base + (k * TAU) / 8, dmg * 0.8, { pierce: 2, col: '#e0a8ff', r: 11 });
       }
-      return 1.05 * M.cd * Math.pow(0.95, l - 1);
+      return 1.0 * M.cd * Math.pow(0.95, l - 1);
     },
     ping(G, w) {
       const l = w.lv, M = G.mod, p = G.p;
@@ -488,7 +508,6 @@
     },
     cat(G, w) {
       const l = w.lv, M = G.mod, p = G.p;
-      if (!nearest(G, p.x, p.y, 1, 220).length) return 0;
       const range = 76 + 8 * l, half = l >= 8 ? 1.2 : 0.9;
       const dmg = 13 * (1 + 0.2 * (l - 1)) * M.dmg;
       const slash = (ang) => {
@@ -502,7 +521,7 @@
           if (Math.abs(da) <= half || d < e.r + 14) hurtEnemy(G, e, dmg, Math.atan2(dy, dx), 220);
         }
       };
-      const fa = Math.atan2(p.fy, p.fx);
+      const fa = aimAt(G).ang;
       slash(fa);
       if (l >= 4) G.timers.push({ t: 0.22, fn: () => slash(fa + Math.PI) });
       return 1.35 * M.cd * Math.pow(0.95, l - 1) * (l >= 7 ? 0.9 : 1);
@@ -510,27 +529,36 @@
     rm(G, w) {
       const l = w.lv, M = G.mod, p = G.p;
       const amt = 1 + (l >= 6 ? 1 : 0) + M.amt;
-      const ts = nearest(G, p.x, p.y, amt, 600);
       const thr = l >= 8 ? 0.35 : l >= 4 ? 0.25 : 0.15;
+      const aim = aimAt(G);
       for (let i = 0; i < amt; i++) {
-        const t = ts[i % Math.max(1, ts.length)];
-        const a = t ? Math.atan2(t.y - p.y, t.x - p.x) + (i >= ts.length ? rr(-0.5, 0.5) : 0) : Math.atan2(p.fy, p.fx) + i * 0.6;
-        G.fx.push({ k: 'rm', x: p.x, y: p.y, ang: a, out: true, dist: 0, maxd: 190 + 16 * l, t: 0, thr, hitT: new Map(),
+        const a = aim.ang + (i - (amt - 1) / 2) * 0.35;
+        G.fx.push({ k: 'rm', x: p.x, y: p.y, ang: a, out: true, dist: 0, maxd: 210 + 16 * l, t: 0, thr, hitT: new Map(),
           dmg: 11 * (1 + 0.2 * (l - 1)) * M.dmg, spd: 330 });
       }
-      return 2.6 * M.cd * Math.pow(0.94, l - 1) * (l >= 7 ? 0.85 : 1);
+      return 2.4 * M.cd * Math.pow(0.94, l - 1) * (l >= 7 ? 0.85 : 1);
     },
     cron(G, w) {
       const l = w.lv, M = G.mod, p = G.p;
-      const amt = 1 + Math.floor(l / 4) + (l >= 8 ? 0 : 0) + M.amt;
-      const ts = nearest(G, p.x, p.y, 40, 380);
+      const amt = 1 + Math.floor(l / 4) + M.amt;
+      const lock = G.pas.lock || 0;
+      const ts = lock ? nearest(G, p.x, p.y, 40, 520) : [];
+      // cursor position, kept within a sane range of the player
+      let cx = p.cx - p.x, cy = p.cy - p.y;
+      const cd = Math.hypot(cx, cy) || 1, lim = Math.min(cd, 420);
+      cx = p.x + (cx / cd) * lim; cy = p.y + (cy / cd) * lim;
       for (let i = 0; i < amt; i++) {
-        let x, y;
-        if (ts.length) { const t = ts[Math.floor(Math.random() * ts.length)]; x = t.x; y = t.y; }
-        else { const a = rr(0, TAU), d = rr(60, 200); x = p.x + Math.cos(a) * d; y = p.y + Math.sin(a) * d; }
-        G.fx.push({ k: 'blast', x, y, t: 0, delay: 0.85, R: 50 + 5 * l, dmg: 26 * (1 + 0.2 * (l - 1)) * M.dmg, done: false });
+        let x = cx, y = cy;
+        if (i > 0) { const a = rr(0, TAU), d = rr(30, 90); x += Math.cos(a) * d; y += Math.sin(a) * d * 0.7; }
+        if (ts.length) { // Lock-On: snap to the closest enemy to the aimed point (any, at lv3)
+          let best = null, bd = lock >= 3 ? 1e9 : 90 * 90;
+          for (const t of ts) { const d2 = (t.x - x) ** 2 + (t.y - y) ** 2; if (d2 < bd) { bd = d2; best = t; } }
+          if (lock >= 3 && ts.length) best = ts[Math.floor(Math.random() * ts.length)];
+          if (best) { x = best.x; y = best.y; }
+        }
+        G.fx.push({ k: 'blast', x, y, t: 0, delay: 0.8, R: 50 + 5 * l, dmg: 26 * (1 + 0.2 * (l - 1)) * M.dmg, done: false });
       }
-      return 4.2 * M.cd * Math.pow(0.95, l - 1) * (l >= 7 ? 0.88 : 1);
+      return 3.8 * M.cd * Math.pow(0.95, l - 1) * (l >= 7 ? 0.88 : 1);
     },
   };
 
@@ -645,14 +673,6 @@
 
     // Player shots
     for (const s of G.shots) {
-      if (s.hom && !s.hom.dead) {
-        const want = Math.atan2(s.hom.y - s.y, s.hom.x - s.x);
-        let da = want - s.ang;
-        da = Math.atan2(Math.sin(da), Math.cos(da));
-        s.ang += clamp(da, -4 * dt, 4 * dt);
-        s.vx = Math.cos(s.ang) * s.sp; s.vy = Math.sin(s.ang) * s.sp;
-        s.ch = dirChar(s.ang);
-      }
       s.x += s.vx * dt; s.y += s.vy * dt;
       s.life -= dt;
       if (s.life <= 0) { s.dead = true; continue; }
@@ -829,7 +849,13 @@
     // Movement
     let dx = inp.dx || 0, dy = inp.dy || 0;
     const m = Math.hypot(dx, dy);
-    if (m > 0) { dx /= m; dy /= m; p.fx = dx; p.fy = dy; if (Math.abs(dx) > 0.2) p.face = dx > 0 ? 1 : -1; }
+    if (m > 0) { dx /= m; dy /= m; }
+    // The cursor (sent as an offset from the player) decides where everything points.
+    if (inp.ox !== undefined) { p.cox = inp.ox; p.coy = inp.oy; }
+    p.cx = p.x + p.cox; p.cy = p.y + p.coy;
+    if (Math.hypot(p.cox, p.coy) > 4) p.aim = Math.atan2(p.coy, p.cox);
+    p.fx = Math.cos(p.aim); p.fy = Math.sin(p.aim);
+    p.face = Math.cos(p.aim) >= 0 ? 1 : -1;
     const spd = 150 * G.mod.spd;
     p.x += dx * spd * dt; p.y += dy * spd * dt;
     if (p.invuln > 0) p.invuln -= dt;

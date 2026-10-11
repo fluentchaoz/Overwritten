@@ -38,7 +38,10 @@ function runOnce(OW, secs, form, opts) {
     if (G.portal) { const d = Math.hypot(G.portal.x - G.p.x, G.portal.y - G.p.y); fx += ((G.portal.x - G.p.x) / d) * 0.01; fy += ((G.portal.y - G.p.y) / d) * 0.01; }
     // tangential drift so the bot keeps moving (needed for tail -f)
     fx += -Math.sin(G.t * 0.7) * 0.0006; fy += Math.cos(G.t * 0.7) * 0.0006;
-    const inp = { dx: fx, dy: fy, dash: G.p.hp < G.p.maxhp * 0.35 };
+    // aim at the nearest enemy (stands in for the mouse)
+    let ne = null, nd = 1e9;
+    for (const e of G.enemies) { const d = Math.hypot(e.x - G.p.x, e.y - G.p.y); if (d < nd) { nd = d; ne = e; } }
+    const inp = { dx: fx, dy: fy, dash: G.p.hp < G.p.maxhp * 0.35, ox: ne ? ne.x - G.p.x : 200, oy: ne ? ne.y - G.p.y : 0 };
     if (G.choices) {
       const i = Math.floor(Math.random() * G.choices.length);
       stats.levels.push(Math.round(G.t));

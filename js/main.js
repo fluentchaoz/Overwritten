@@ -26,6 +26,7 @@
   let G = null;
   let hubSel = 0;
   let hubMsg = '';
+  let hubRows = [];
   let banked = null; // result of last run
   let scale = 1;
   const params = new URLSearchParams(location.search);
@@ -66,6 +67,20 @@
     if (keys['s'] || keys['arrowdown']) dy += 1;
     return { dx, dy };
   }
+
+  // Mouse: logical (VW x VH) coordinates. The camera is centred on the player, so the
+  // cursor's offset from screen centre is also its offset from the player in the world.
+  const mouse = { x: VW / 2 + 200, y: VH / 2, down: false, moved: false };
+  function toLogical(e) {
+    const r = canvas.getBoundingClientRect();
+    mouse.x = ((e.clientX - r.left) / r.width) * VW;
+    mouse.y = ((e.clientY - r.top) / r.height) * VH;
+    mouse.moved = true;
+  }
+  window.addEventListener('mousemove', toLogical);
+  window.addEventListener('contextmenu', (e) => e.preventDefault());
+  let clickQueued = null;
+  window.addEventListener('mousedown', (e) => { toLogical(e); if (e.button === 0) clickQueued = { x: mouse.x, y: mouse.y }; });
 
   // ------------------------------------------------------------------ text-grid helpers
   ctx.textAlign = 'center';
@@ -341,6 +356,20 @@
     }
   }
 
+  function drawReticle() {
+    const p = G.p;
+    const sx = VW / 2, sy = VH / 2;
+    const dx = mouse.x - sx, dy = mouse.y - sy, d = Math.hypot(dx, dy);
+    setFont();
+    // faint dotted aim line (stops short of the reticle)
+    ctx.globalAlpha = 0.35;
+    for (let k = 40; k < Math.min(d - 14, 260); k += 22) putAt(sx + (dx / d) * k, sy + (dy / d) * k, '.', '#9fd6e8');
+    ctx.globalAlpha = 1;
+    const lock = G.pas.lock || 0;
+    const col = lock ? '#ff9ae6' : '#ffffff';
+    sprite([lock >= 3 ? '{ + }' : '-+-'], mouse.x, mouse.y, col);
+  }
+
   function glitchPass() {
     if (!G || G.glitch <= 0) return;
     const n = 3 + Math.floor(G.glitch * 14);
@@ -415,7 +444,9 @@
     panel(3, 6, 62, 24, 'RECYCLE BIN');
     let row = 8;
     const items = hubItems();
+    hubRows = [];
     items.forEach((it, i) => {
+      hubRows[i] = row;
       const sel = i === hubSel;
       const col = sel ? '#e8f1f5' : it.dim ? '#4b606c' : '#9fb4be';
       put(5, row, (sel ? '> ' : '  ') + it.label, sel ? '#8affb0' : col);
@@ -437,10 +468,11 @@
     dl.forEach((l, i) => put(69, 17 + i, l, '#7f98a5'));
     put(69, 22, 'CONTROLS', '#e8f1f5');
     put(69, 23, 'WASD/arrows  move', '#7f98a5');
-    put(69, 24, 'SPACE        ctrl+z', '#7f98a5');
-    put(69, 25, 'P / ESC      pause', '#7f98a5');
-    put(69, 26, 'weapons fire by themselves', '#7f98a5');
-    put(69, 28, 'reach the internet.', '#5ee1ff');
+    put(69, 24, 'MOUSE        aim', '#7f98a5');
+    put(69, 25, 'SPACE        ctrl+z', '#7f98a5');
+    put(69, 26, 'P / ESC      pause', '#7f98a5');
+    put(69, 27, 'you always fire.', '#7f98a5');
+    put(69, 29, 'reach the internet.', '#5ee1ff');
   }
 
   function hubItems() {
@@ -489,7 +521,33 @@
     mode = 'run';
     msg0();
   }
-  function msg0() { G.msgs.push({ text: 'ESCAPE THE BIN. REACH THE INTERNET.', col: '#e8f1f5', t: 0, life: 3 }); }
+  function msg0() { G.msgs.push({ text: 'AIM WITH THE MOUSE. YOU ALWAYS FIRE.', col: '#e8f1f5', t: 0, life: 3 }); }
+
+  function cardAt(px, py) {
+    const bw = 30, gap = 3, start = Math.floor((COLS - (bw * 3 + gap * 2)) / 2);
+    const col = px / CW, row = py / CH;
+    if (row < 8 || row > 22) return -1;
+    for (let i = 0; i < 3; i++) {
+      const c0 = start + i * (bw + gap);
+      if (col >= c0 && col <= c0 + bw) return i;
+    }
+    return -1;
+  }
+
+  function handleClick(c) {
+    if (mode === 'hub') {
+      const row = Math.floor(c.y / CH), col = c.x / CW;
+      const i = hubRows.indexOf(row);
+      if (i >= 0 && col > 3 && col < 65) { hubSel = i; hubActivate(); }
+    } else if (mode === 'run') {
+      if (G.over) { if (G.overT > 1) { if (!banked) bankRun(); mode = 'hub'; banked = null; } }
+      else if (G.choices) {
+        const i = cardAt(c.x, c.y);
+        if (i >= 0) { OW.applyChoice(G, i); G.sel = 0; }
+        else if (c.y / CH > 23 && c.y / CH < 26) OW.reroll(G);
+      }
+    } else if (mode === 'pause') mode = 'run';
+  }
 
   function drawLevelUp() {
     ctx.fillStyle = 'rgba(4,8,12,0.9)';
@@ -606,13 +664,23 @@
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     handleKeys();
+    if (clickQueued) { handleClick(clickQueued); clickQueued = null; }
+    if (mode === 'hub' && mouse.moved) {
+      const i = hubRows.indexOf(Math.floor(mouse.y / CH));
+      if (i >= 0 && mouse.x / CW > 3 && mouse.x / CW < 65) hubSel = i;
+    } else if (mode === 'run' && G.choices && mouse.moved) {
+      const i = cardAt(mouse.x, mouse.y);
+      if (i >= 0) G.sel = i;
+    }
+    mouse.moved = false;
+    canvas.style.cursor = mode === 'run' && !G.choices && !G.over ? 'none' : 'default';
 
     if (mode === 'run') {
       acc += dt;
       let n = 0;
       while (acc >= STEP && n < 4) {
         const mv = readMove();
-        OW.step(G, STEP, { dx: mv.dx, dy: mv.dy, dash: dashQueued });
+        OW.step(G, STEP, { dx: mv.dx, dy: mv.dy, dash: dashQueued, ox: mouse.x - VW / 2, oy: mouse.y - VH / 2 });
         dashQueued = false;
         acc -= STEP;
         n++;
@@ -627,6 +695,7 @@
     if (mode === 'hub') drawHub();
     else {
       drawWorld();
+      if (!G.over && !G.choices && mode === 'run') drawReticle();
       glitchPass();
       drawHud();
       if (G.over) drawOver();

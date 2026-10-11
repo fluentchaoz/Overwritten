@@ -77,8 +77,8 @@
   OW.WEAPONS = {
     grep: {
       name: 'grep', col: '#5ee1ff', max: 8,
-      desc: 'Homing character bolts fired at the nearest enemies.',
-      lv: ['', 'Fires 1 bolt.', '+1 bolt.', '+25% damage.', '+1 bolt, faster.', 'Bolts pierce 1 enemy.', '+1 bolt.', '+damage.', '+1 bolt. Ready to evolve.'],
+      desc: 'Piercing character bolts fired where you aim.',
+      lv: ['', 'Fires 1 bolt.', '+1 bolt.', 'Bolts pierce 1 enemy.', '+1 bolt, faster.', '+25% damage.', '+1 bolt. Pierce 2.', '+damage.', '+1 bolt. Ready to evolve.'],
       evo: { pas: 'regex', name: 'grep -r', desc: 'Recursive: also fires 8 bolts in every direction. Bigger, piercing bolts.' },
     },
     ping: {
@@ -88,7 +88,7 @@
     },
     cat: {
       name: 'cat', col: '#ffe08a', max: 8,
-      desc: 'Short-range sweep in the direction you are facing.',
+      desc: 'Short-range sweep toward your cursor.',
       lv: ['', 'Sweeps ahead.', 'Longer reach.', '+damage.', 'Also sweeps behind.', 'Longer reach.', '+damage.', 'Faster sweeps.', 'Wide arc.'],
     },
     tail: {
@@ -98,12 +98,12 @@
     },
     rm: {
       name: 'rm', col: '#ff6b6b', max: 8,
-      desc: 'Boomerang that deletes weakened enemies outright.',
+      desc: 'Boomerang thrown at your cursor. Deletes weakened enemies outright.',
       lv: ['', 'Throws 1 boomerang.', 'Longer reach.', '+damage.', 'Deletes below 25% HP.', '+1 boomerang.', '+damage.', 'Faster throws.', 'Deletes below 35% HP.'],
     },
     cron: {
       name: 'cron', col: '#ffb454', max: 8,
-      desc: 'Scheduled explosions at random enemy positions.',
+      desc: 'Scheduled explosions that land on your cursor.',
       lv: ['', '1 blast every 4s.', 'Bigger blasts.', '+damage.', '+1 blast.', 'Bigger blasts.', '+damage.', 'Faster schedule.', '+1 blast.'],
     },
   };
@@ -115,6 +115,7 @@
     cache: { name: 'Cache', col: '#c3ff8a', max: 5, desc: '+25% pickup radius per level.' },
     integrity: { name: 'Integrity', col: '#6dff9c', max: 5, desc: '+20 max integrity per level (and heals 20).' },
     thru: { name: 'Throughput', col: '#ffe08a', max: 5, desc: '+8% movement speed per level.' },
+    lock: { name: 'Lock-On', col: '#ff9ae6', max: 3, desc: 'Aim assist. Lv1 snaps to enemies near your cursor line, Lv2 a wide cone, Lv3 aims for you.' },
     regex: { name: 'Regex', col: '#e0a8ff', max: 5, desc: '+1 projectile/blast per 2 levels. Unlocks grep evolution.' },
   };
 

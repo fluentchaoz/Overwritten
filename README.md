@@ -15,11 +15,12 @@ Open `index.html` in a browser (no build step, no dependencies), or serve the fo
 | Key | Action |
 |---|---|
 | WASD / arrows | move |
+| MOUSE | aim (you always fire, the cursor decides where) |
 | SPACE | `ctrl+z`: rewind ~1s of position **and** integrity (14s cooldown) |
-| 1-3 / arrows + ENTER | pick a level-up patch, `R` rerolls |
+| click / 1-3 / arrows + ENTER | pick a level-up patch, `R` rerolls |
 | P / ESC | pause |
 
-Weapons fire automatically. Add `?t=530` to the URL to start a run at 530 seconds (the boss arrives at 540).
+Weapons fire constantly and point at your cursor (`ping` and `tail -f` have no direction and just work). The **Lock-On** passive adds aim assist: Lv1 snaps to enemies near your cursor line, Lv2 a wide cone, Lv3 aims for you. Add `?t=530` to the URL to start a run at 530 seconds (the boss arrives at 540).
 
 ## Slice contents
 
