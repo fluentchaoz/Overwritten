@@ -12,7 +12,23 @@
   OW.VH = OW.ROWS * OW.CH;
 
   // ---- Timeline (seconds) ----
-  OW.PURGE_START = 180;
+  OW.PURGE_START = 240;
+
+  // ---- Difficulty knobs (the "onslaught"). Tweak these to taste. ----
+  OW.TUNING = {
+    spawnBase: 1.8,      // enemies spawned per second at t=0
+    spawnGrowth: 0.02,   // + this per second of run time
+    capBase: 12,         // max enemies alive at t=0
+    capGrowth: 0.5,      // + this per second of run time
+    capPurge: 10,        // + this per Purge level
+    purgeLen: 75,        // seconds per Purge level
+    hpPerMin: 0.14,      // enemy HP grows this fraction per minute
+    speedGrowth: 3000,   // enemies gain +1/(this) speed per second (capped at +25%)
+    waveAmp: 0.45,       // ebb and flow: spawn rate swings +/- this fraction ...
+    wavePeriod: 28,      // ... over this many seconds (lulls let you breathe and collect)
+    eliteFirst: 90,      // first elite after this many seconds
+    eliteEvery: 85,      // then roughly this often (drifts down slowly)
+  };
   OW.BOSS_TIME = 540;
 
   // ---- Enemies ----
@@ -23,26 +39,26 @@
       art: (e) => [e.face > 0 ? '-0' : '0-'],
     },
     flick: {
-      name: 'flicker', hp: 4, spd: 88, dmg: 6, xp: 1, col: '#ffb454', from: 30, w: 3,
+      name: 'flicker', hp: 4, spd: 88, dmg: 6, xp: 1, col: '#ffb454', from: 45, w: 3,
       art: (e) => [(Math.floor(e.t * 8) & 1) ? '<>' : '><'],
     },
     brick: {
-      name: 'bloat', hp: 18, spd: 46, dmg: 11, xp: 3, col: '#c792ea', from: 90, w: 2, kbRes: 0.6,
+      name: 'bloat', hp: 18, spd: 46, dmg: 11, xp: 3, col: '#c792ea', from: 150, w: 2, kbRes: 0.6,
       art: () => ['[#]'],
     },
     spy: {
-      name: 'spyware', hp: 9, spd: 78, dmg: 7, xp: 2, col: '#ff79c6', from: 150, w: 1.6,
+      name: 'spyware', hp: 9, spd: 78, dmg: 7, xp: 2, col: '#ff79c6', from: 240, w: 1.6,
       art: (e) => [e.shotT < 0.35 ? '(O)' : '(o)'],
     },
     worm: {
-      name: 'worm', hp: 6, spd: 66, dmg: 8, xp: 1, col: '#4be0c4', from: 210, w: 0.5,
+      name: 'worm', hp: 6, spd: 66, dmg: 8, xp: 1, col: '#4be0c4', from: 330, w: 0.5,
       art: (e) =>
         !e.leader
           ? [e.face > 0 ? '=@' : '@=']
           : [((Math.floor(e.t * 6) + e.seg) & 1) ? '~=' : '=~'],
     },
     trojan: {
-      name: 'trojan', hp: 10, spd: 22, dmg: 0, xp: 3, col: '#6dff9c', from: 270, w: 0.7,
+      name: 'trojan', hp: 10, spd: 22, dmg: 0, xp: 3, col: '#6dff9c', from: 420, w: 0.7,
       art: (e) => (e.open ? ['[=]'] : (e.t % 4 < 0.12 ? ['(=)'] : ['(+)'])),
     },
     boss: {

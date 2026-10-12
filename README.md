@@ -23,6 +23,12 @@ Open `index.html` in a browser (no build step, no dependencies), or serve the fo
 
 Weapons fire constantly and point at your cursor (`ping` and `tail -f` have no direction and just work). The **Lock-On** passive adds aim assist: Lv1 snaps to enemies near your cursor line, Lv2 a wide cone, Lv3 aims for you. Add `?t=530` to the URL to start a run at 530 seconds (the boss arrives at 540).
 
+## Tuning the difficulty
+
+The onslaught is controlled by `OW.TUNING` at the top of `js/data.js`: spawn rate and population growth,
+enemy HP growth, Purge pacing, elite timing, and the **ebb and flow** (`waveAmp` / `wavePeriod`), a surge-and-lull
+rhythm so the pressure comes in waves instead of constantly. Enemy types unlock via `from:` on each entry in `OW.ENEMIES`.
+
 ## Sound
 
 All effects are synthesized live with the Web Audio API in the spirit of the Atari 2600's TIA chip

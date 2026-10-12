@@ -100,7 +100,7 @@
       p: { x: 0, y: 0, hp: maxhp, maxhp, invuln: 0, face: 1, fx: 1, fy: 0, hist: [], histT: 0, dashCd: 0, aim: 0, cox: 200, coy: 0, cx: 200, cy: 0, lastTrailX: 0, lastTrailY: 0 },
       enemies: [], shots: [], eshots: [], bits: [], fx: [], parts: [], texts: [], msgs: [], hazards: [], timers: [],
       weapons: [], pas: {}, grid: new Map(),
-      spawnAcc: 0, eliteT: 60, purge: 0, bossSpawned: false, boss: null, bossDead: false, portal: null,
+      spawnAcc: 0, eliteT: OW.TUNING.eliteFirst, purge: 0, bossSpawned: false, boss: null, bossDead: false, portal: null,
       shake: 0, glitch: 0, mod: null, bitsCollected: 0, ev: [],
     };
     G.weapons.push({ id: form.start, lv: 1, cd: 0.4, evolved: false });
@@ -122,7 +122,7 @@
 
   // ------------------------------------------------------------------ enemies
   function enemyHpMult(G) {
-    return 1 + (G.t / 60) * 0.2 + G.purge * 0.1;
+    return 1 + (G.t / 60) * OW.TUNING.hpPerMin + G.purge * 0.08;
   }
   function mkEnemy(G, type, x, y, o) {
     o = o || {};
@@ -174,7 +174,7 @@
     if (G.over) return;
     // Purge pressure
     if (t >= OW.PURGE_START) {
-      const lv = Math.floor((t - OW.PURGE_START) / 60) + 1;
+      const lv = Math.floor((t - OW.PURGE_START) / OW.TUNING.purgeLen) + 1;
       if (lv !== G.purge) {
         G.purge = lv;
         msg(G, lv === 1 ? 'PURGE INITIATED' : 'PURGE LEVEL ' + lv, '#ff6b6b', 3);
@@ -193,8 +193,11 @@
     const bossLive = G.boss && !G.boss.dead;
     // Regular spawns
     const avail = Object.keys(OW.ENEMIES).filter((k) => k !== 'boss' && OW.ENEMIES[k].from <= t);
-    const rate = (2.2 + t * 0.045) * (1 + 0.18 * G.purge) * (bossLive ? 0.5 : G.bossDead ? 0.7 : 1);
-    const cap = Math.min(MAX_ENEMIES, 15 + t * 0.85 + G.purge * 15);
+    const T = OW.TUNING;
+    // Ebb and flow: surges and lulls instead of constant pressure. Starts in a lull.
+    const wave = Math.sin((t / T.wavePeriod) * TAU - Math.PI / 2);
+    const rate = (T.spawnBase + t * T.spawnGrowth) * (1 + T.waveAmp * wave) * (1 + 0.15 * G.purge) * (bossLive ? 0.5 : G.bossDead ? 0.7 : 1);
+    const cap = Math.min(MAX_ENEMIES, (T.capBase + t * T.capGrowth + G.purge * T.capPurge) * (1 + 0.15 * wave));
     G.spawnAcc = Math.min(G.spawnAcc + dt * rate, 4);
     while (G.spawnAcc >= 1 && G.enemies.length < cap) {
       G.spawnAcc -= 1;
@@ -209,7 +212,7 @@
     if (!G.bossSpawned) {
       G.eliteT -= dt;
       if (G.eliteT <= 0) {
-        G.eliteT = Math.max(35, 75 - t * 0.03);
+        G.eliteT = Math.max(45, OW.TUNING.eliteEvery - t * 0.03);
         const types = avail.filter((k) => k !== 'worm' && k !== 'trojan');
         const [x, y] = ringPos(G);
         const e = mkEnemy(G, pick(types), x, y, { mod: pick(['*', '!', '&']) });
@@ -228,7 +231,7 @@
     const dx = p.x - e.x, dy = p.y - e.y;
     const d = Math.hypot(dx, dy) || 1;
     const ux = dx / d, uy = dy / d;
-    const sp = e.def.spd * (1 + Math.min(0.3, G.t / 2400) + G.purge * 0.02);
+    const sp = e.def.spd * (1 + Math.min(0.25, G.t / OW.TUNING.speedGrowth) + G.purge * 0.015);
     let vx = 0, vy = 0;
 
     switch (e.type) {
