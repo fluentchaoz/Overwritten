@@ -61,6 +61,11 @@
     return out.slice(0, n).map((o) => o.e);
   }
 
+  // Sound events are queued for the UI layer to play (the sim itself never touches audio).
+  function snd(G, n, x, y, a) {
+    if (G.ev.length < 60) G.ev.push([n, x, y, a]);
+  }
+
   function msg(G, text, col, life) {
     G.msgs.push({ text, col: col || '#e8f1f5', t: 0, life: life || 2.4 });
     if (G.msgs.length > 4) G.msgs.shift();
@@ -96,7 +101,7 @@
       enemies: [], shots: [], eshots: [], bits: [], fx: [], parts: [], texts: [], msgs: [], hazards: [], timers: [],
       weapons: [], pas: {}, grid: new Map(),
       spawnAcc: 0, eliteT: 60, purge: 0, bossSpawned: false, boss: null, bossDead: false, portal: null,
-      shake: 0, glitch: 0, mod: null, bitsCollected: 0,
+      shake: 0, glitch: 0, mod: null, bitsCollected: 0, ev: [],
     };
     G.weapons.push({ id: form.start, lv: 1, cd: 0.4, evolved: false });
     recalc(G);
@@ -173,6 +178,7 @@
       if (lv !== G.purge) {
         G.purge = lv;
         msg(G, lv === 1 ? 'PURGE INITIATED' : 'PURGE LEVEL ' + lv, '#ff6b6b', 3);
+        snd(G, 'purge');
       }
     }
     // Boss
@@ -182,6 +188,7 @@
       b.intro = 2.0; b.mode = 'idle'; b.atkT = 3.5; b.seqI = 0; b.mt = 0;
       G.boss = b;
       msg(G, 'DISK CLEANUP.EXE IS RUNNING', '#ffd24a', 4);
+      snd(G, 'bossintro');
     }
     const bossLive = G.boss && !G.boss.dead;
     // Regular spawns
@@ -207,6 +214,7 @@
         const [x, y] = ringPos(G);
         const e = mkEnemy(G, pick(types), x, y, { mod: pick(['*', '!', '&']) });
         msg(G, 'ELITE ' + e.def.name.toUpperCase() + ' [' + e.mod + '] DETECTED', OW.ELITE_MODS[e.mod].col, 2);
+        snd(G, 'elite');
       }
     }
   }
@@ -239,6 +247,7 @@
         if (e.shotT <= 0 && d < 470) {
           e.shotT = rr(2.2, 3.2);
           const s = 150;
+          snd(G, 'spy', e.x, e.y);
           G.eshots.push({ x: e.x, y: e.y, vx: ux * s, vy: uy * s, dmg: 7, r: 7, life: 4, ch: pick(['?', '!']), col: '#ff9ae6' });
         }
         break;
@@ -263,7 +272,7 @@
       case 'trojan': {
         if (!e.open) {
           vx = ux * sp; vy = uy * sp;
-          if (d < 105) { e.open = true; e.ot = 0.5; }
+          if (d < 105) { e.open = true; e.ot = 0.5; snd(G, 'tropen', e.x, e.y); }
         } else {
           e.ot -= dt;
           if (e.ot <= 0) trojanBurst(G, e);
@@ -291,6 +300,7 @@
     if (e.dead) return;
     e.dead = true;
     msg(G, 'PAYLOAD DELIVERED', '#ff6b6b', 1.4);
+    snd(G, 'trojan', e.x, e.y);
     burstChars(G, e.x, e.y, ['[=]'], '#ff6b6b', 10);
     for (let i = 0; i < 5; i++) {
       const a = (i / 5) * TAU;
@@ -318,7 +328,8 @@
           for (let i = 0; i < n; i++) {
             const axis = Math.random() < 0.5 ? 'h' : 'v';
             const c = (axis === 'h' ? p.y : p.x) + (i ? rr(-120, 120) : rr(-20, 20));
-            G.hazards.push({ k: 'band', axis, c, th: 60, t: 0, tele: 1.15, act: 0.5, hitDone: false });
+            G.hazards.push({ k: 'band', axis, c, th: 60, t: 0, tele: 1.15, act: 0.5, hitDone: false, fired: false });
+            snd(G, 'bandtele');
           }
           e.atkT = phase2 ? 2.4 : 3.2;
         } else if (a === 'spawn') {
@@ -328,15 +339,17 @@
             mkEnemy(G, i % 4 === 0 ? 'flick' : 'swarm', e.x + Math.cos(an) * 100, e.y + Math.sin(an) * 80);
           }
           burstChars(G, e.x, e.y, ['0-<>'], '#ffd24a', 14);
+          snd(G, 'bossspawn', e.x, e.y);
           e.atkT = phase2 ? 2.4 : 3.0;
         } else {
           e.mode = 'tele'; e.mt = phase2 ? 0.65 : 0.85;
+          snd(G, 'bosstele', e.x, e.y);
         }
       }
     } else if (e.mode === 'tele') {
       e.mt -= dt;
       e.cvx = dx / d; e.cvy = dy / d;
-      if (e.mt <= 0) { e.mode = 'charge'; e.mt = 0.7; }
+      if (e.mt <= 0) { e.mode = 'charge'; e.mt = 0.7; snd(G, 'bosscharge', e.x, e.y); }
     } else if (e.mode === 'charge') {
       e.mt -= dt;
       e.x += e.cvx * 470 * dt;
@@ -348,6 +361,7 @@
   function bossDead(G, e) {
     G.bossDead = true;
     msg(G, 'DISK CLEANUP.EXE HAS STOPPED RESPONDING', '#ffd24a', 4);
+    snd(G, 'bossdie');
     G.shake = 14;
     for (const o of G.enemies) {
       if (o === e || o.dead) continue;
@@ -362,6 +376,7 @@
     const a = rr(0, TAU);
     G.portal = { x: G.p.x + Math.cos(a) * 480, y: G.p.y + Math.sin(a) * 340, t: 0 };
     msg(G, 'UPLINK DETECTED. REACH THE >>> PORTAL', '#8affb0', 5);
+    G.timers.push({ t: 1.6, fn: () => snd(G, 'portal') });
   }
 
   // ------------------------------------------------------------------ damage
@@ -369,6 +384,7 @@
     if (e.dead || (e.boss && e.intro > 0)) return false;
     e.hp -= dmg;
     e.flash = 0.09;
+    snd(G, 'hit', e.x, e.y);
     if (kb && !e.boss) {
       const k = kb * (1 - (e.def.kbRes || 0));
       e.kx += Math.cos(ang) * k; e.ky += Math.sin(ang) * k;
@@ -394,6 +410,7 @@
     const rows = e.def.art(e);
     burstChars(G, e.x, e.y, rows, e.elite ? OW.ELITE_MODS[e.mod].col : e.def.col);
     if (e.boss) return bossDead(G, e);
+    snd(G, e.elite || e.def.hp >= 15 ? 'killbig' : 'kill', e.x, e.y, e.r < 12 ? 1.25 : 0.8);
     if (silent) return;
     const xp = e.def.xp * (e.elite ? 5 : 1);
     if (xp > 0) dropBit(G, e.x, e.y, xp);
@@ -404,11 +421,13 @@
       G.bits.push({ x: e.x, y: e.y, v: 0, kind: 'chest', ch: '[▣]', col: '#ffd24a', mag: false });
       if (e.mod === '!') {
         G.fx.push({ k: 'ebl', x: e.x, y: e.y, t: 0, delay: 0.7, R: 80, dmg: 18, done: false });
+        snd(G, 'ebeep', e.x, e.y);
       } else if (e.mod === '&') {
         for (let i = 0; i < 3; i++) mkEnemy(G, 'swarm', e.x + rr(-14, 14), e.y + rr(-14, 14));
       }
     }
     if (e.type === 'trojan') {
+      snd(G, 'trojan', e.x, e.y);
       for (let i = 0; i < 5; i++) {
         const a = (i / 5) * TAU;
         mkEnemy(G, 'swarm', e.x + Math.cos(a) * 20, e.y + Math.sin(a) * 20);
@@ -423,6 +442,7 @@
     const p = G.p;
     if (p.invuln > 0 || G.over) return;
     p.hp -= dmg;
+    snd(G, 'hurt');
     p.invuln = 0.5;
     G.glitch = 0.3;
     G.shake = Math.max(G.shake, 6);
@@ -432,6 +452,7 @@
         p.hp = Math.round(p.maxhp * 0.5);
         p.invuln = 2.5;
         msg(G, 'RESTORED FROM BACKUP', '#6dff9c', 3);
+        snd(G, 'revive');
         G.shake = 14;
         for (const e of G.enemies) {
           if (e.dead || e.boss) continue;
@@ -440,6 +461,7 @@
         G.fx.push({ k: 'ping', x: p.x, y: p.y, t: 0, dur: 0.6, R: 320, hit: new Set(), dmg: 0, col: '#6dff9c' });
       } else {
         p.hp = 0;
+        snd(G, 'death');
         G.over = 'dead';
         G.overT = 0;
       }
@@ -498,12 +520,14 @@
         const base = G.t * 1.7;
         for (let k = 0; k < 8; k++) shoot(G, base + (k * TAU) / 8, dmg * 0.8, { pierce: 2, col: '#e0a8ff', r: 11 });
       }
+      snd(G, 'grep', G.p.x, G.p.y);
       return 1.0 * M.cd * Math.pow(0.95, l - 1);
     },
     ping(G, w) {
       const l = w.lv, M = G.mod, p = G.p;
       const R = (100 + 14 * l) * (l >= 8 ? 1.25 : 1);
       G.fx.push({ k: 'ping', x: p.x, y: p.y, t: 0, dur: 0.7, R, hit: new Set(), dmg: 9 * (1 + 0.2 * (l - 1)) * M.dmg, col: '#8affb0' });
+      snd(G, 'ping', p.x, p.y);
       return 3.0 * M.cd * Math.pow(0.93, l - 1);
     },
     cat(G, w) {
@@ -523,6 +547,7 @@
       };
       const fa = aimAt(G).ang;
       slash(fa);
+      snd(G, 'slash', p.x, p.y);
       if (l >= 4) G.timers.push({ t: 0.22, fn: () => slash(fa + Math.PI) });
       return 1.35 * M.cd * Math.pow(0.95, l - 1) * (l >= 7 ? 0.9 : 1);
     },
@@ -536,6 +561,7 @@
         G.fx.push({ k: 'rm', x: p.x, y: p.y, ang: a, out: true, dist: 0, maxd: 210 + 16 * l, t: 0, thr, hitT: new Map(),
           dmg: 11 * (1 + 0.2 * (l - 1)) * M.dmg, spd: 330 });
       }
+      snd(G, 'rm', p.x, p.y);
       return 2.4 * M.cd * Math.pow(0.94, l - 1) * (l >= 7 ? 0.85 : 1);
     },
     cron(G, w) {
@@ -558,6 +584,7 @@
         }
         G.fx.push({ k: 'blast', x, y, t: 0, delay: 0.8, R: 50 + 5 * l, dmg: 26 * (1 + 0.2 * (l - 1)) * M.dmg, done: false });
       }
+      snd(G, 'cronset', p.x, p.y);
       return 3.8 * M.cd * Math.pow(0.95, l - 1) * (l >= 7 ? 0.88 : 1);
     },
   };
@@ -648,6 +675,7 @@
               if (d < f.R + e.r) hurtEnemy(G, e, f.dmg, Math.atan2(e.y - f.y, e.x - f.x), 180);
             }
             G.shake = Math.max(G.shake, 3);
+            snd(G, 'blast', f.x, f.y);
           }
           if (f.t >= f.delay + 0.3) f.dead = true;
           break;
@@ -657,6 +685,7 @@
             f.done = true;
             if (Math.hypot(p.x - f.x, p.y - f.y) < f.R + PLAYER_R) hurtPlayer(G, f.dmg * dscale(G));
             G.shake = Math.max(G.shake, 4);
+            snd(G, 'blast', f.x, f.y);
           }
           if (f.t >= f.delay + 0.3) f.dead = true;
           break;
@@ -711,6 +740,7 @@
       h.t += dt;
       if (h.t > h.tele + h.act) { h.dead = true; continue; }
       if (h.t >= h.tele) {
+        if (!h.fired) { h.fired = true; snd(G, 'bandfire'); }
         const c = h.axis === 'h' ? p.y : p.x;
         if (Math.abs(c - h.c) < h.th / 2 + PLAYER_R) hurtPlayer(G, 22 * dscale(G));
       }
@@ -753,9 +783,9 @@
       if (b.kind === 'chest' || b.kind === 'heal' || b.kind === 'magnet') {
         if (d < 16) {
           b.dead = true;
-          if (b.kind === 'chest') { G.pending++; msg(G, 'CACHE OPENED', '#ffd24a', 1.4); }
-          else if (b.kind === 'heal') { p.hp = Math.min(p.maxhp, p.hp + 25); text(G, p.x, p.y - 16, '+25', '#6dff9c'); }
-          else { for (const o of G.bits) if (o.kind === 'xp') o.mag = true; msg(G, 'MAGNET', '#ffd24a', 1); }
+          if (b.kind === 'chest') { G.pending++; msg(G, 'CACHE OPENED', '#ffd24a', 1.4); snd(G, 'chest'); }
+          else if (b.kind === 'heal') { snd(G, 'heal'); p.hp = Math.min(p.maxhp, p.hp + 25); text(G, p.x, p.y - 16, '+25', '#6dff9c'); }
+          else { for (const o of G.bits) if (o.kind === 'xp') o.mag = true; msg(G, 'MAGNET', '#ffd24a', 1); snd(G, 'magnet'); }
         } else if (d < radius * 0.6) { b.x += (dx / d) * 160 * dt; b.y += (dy / d) * 160 * dt; }
         continue;
       }
@@ -763,7 +793,7 @@
       if (b.mag) {
         const sp = 260 + (400 - Math.min(400, d)) * 0.8 + 140;
         b.x += (dx / d) * sp * dt; b.y += (dy / d) * sp * dt;
-        if (d < 14) { b.dead = true; addXp(G, b.v); }
+        if (d < 14) { b.dead = true; addXp(G, b.v); snd(G, 'bit'); }
       }
     }
     compact(G.bits);
@@ -880,6 +910,7 @@
       p.dashCd = 14;
       p.hist.length = 0;
       G.shake = Math.max(G.shake, 4);
+      snd(G, 'dash');
       msg(G, healed > 0 ? 'CTRL+Z  (+' + Math.round(healed) + ' integrity)' : 'CTRL+Z', '#8ab4ff', 1.4);
     }
 
@@ -930,10 +961,11 @@
       if (Math.hypot(G.portal.x - p.x, G.portal.y - p.y) < 36) {
         G.over = 'win'; G.overT = 0;
         msg(G, 'CONNECTION ESTABLISHED', '#8affb0', 4);
+        snd(G, 'win');
       }
     }
 
-    if (G.pending > 0 && !G.over) { G.pending--; G.choices = makeChoices(G); }
+    if (G.pending > 0 && !G.over) { G.pending--; G.choices = makeChoices(G); snd(G, 'levelup'); }
   };
 
   OW.hurtEnemyDebug = hurtEnemy;

@@ -19,8 +19,17 @@ Open `index.html` in a browser (no build step, no dependencies), or serve the fo
 | SPACE | `ctrl+z`: rewind ~1s of position **and** integrity (14s cooldown) |
 | click / 1-3 / arrows + ENTER | pick a level-up patch, `R` rerolls |
 | P / ESC | pause |
+| M | mute / unmute sound |
 
 Weapons fire constantly and point at your cursor (`ping` and `tail -f` have no direction and just work). The **Lock-On** passive adds aim assist: Lv1 snaps to enemies near your cursor line, Lv2 a wide cone, Lv3 aims for you. Add `?t=530` to the URL to start a run at 530 seconds (the boss arrives at 540).
+
+## Sound
+
+All effects are synthesized live with the Web Audio API in the spirit of the Atari 2600's TIA chip
+(square and 25% pulse waves, short-period "buzz" noise, 4-bit volume steps rewritten every 1/60s, crushed to a
+coarse bit depth). There are no audio files and no music. Sounds fall off with distance, pickups climb in pitch
+while you keep scooping, and busy fights are compressed so they crunch instead of clipping.
+Open `sfx.html` to audition every effect.
 
 ## Slice contents
 
@@ -34,5 +43,7 @@ Weapons fire constantly and point at your cursor (`ping` and `tail -f` have no d
     index.html      page + canvas
     js/data.js      enemies, weapons, passives, forms, meta upgrades
     js/game.js      simulation (no DOM; runs in Node)
+    js/audio.js     procedural Atari-style sound effects (Web Audio)
     js/main.js      rendering, input, menus, save (localStorage)
+    sfx.html        sound test page
     tools/simtest.js  headless smoke test:  node tools/simtest.js 700 txt 3

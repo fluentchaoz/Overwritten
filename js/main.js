@@ -12,11 +12,13 @@
 
   // ------------------------------------------------------------------ persistence
   const SAVE_KEY = 'overwritten.save.v1';
-  let save = { bytes: 0, up: {}, forms: { txt: true }, form: 'txt', best: 0, runs: 0, wins: 0 };
+  let save = { bytes: 0, up: {}, forms: { txt: true }, form: 'txt', best: 0, runs: 0, wins: 0, mute: false };
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (raw) save = Object.assign(save, JSON.parse(raw));
   } catch (e) { /* storage may be unavailable */ }
+  OW.audio.setMuted(save.mute);
+  const sfx = (n, v, a) => OW.audio.play(n, v, a);
   function persist() {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* ignore */ }
   }
@@ -51,6 +53,7 @@
   let dashQueued = false;
   const pressed = [];
   window.addEventListener('keydown', (e) => {
+    OW.audio.init();
     if (e.repeat) { if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault(); return; }
     keys[e.key.toLowerCase()] = true;
     pressed.push(e.key.toLowerCase());
@@ -80,7 +83,7 @@
   window.addEventListener('mousemove', toLogical);
   window.addEventListener('contextmenu', (e) => e.preventDefault());
   let clickQueued = null;
-  window.addEventListener('mousedown', (e) => { toLogical(e); if (e.button === 0) clickQueued = { x: mouse.x, y: mouse.y }; });
+  window.addEventListener('mousedown', (e) => { OW.audio.init(); toLogical(e); if (e.button === 0) clickQueued = { x: mouse.x, y: mouse.y }; });
 
   // ------------------------------------------------------------------ text-grid helpers
   ctx.textAlign = 'center';
@@ -471,7 +474,7 @@
     put(69, 24, 'MOUSE        aim', '#7f98a5');
     put(69, 25, 'SPACE        ctrl+z', '#7f98a5');
     put(69, 26, 'P / ESC      pause', '#7f98a5');
-    put(69, 27, 'you always fire.', '#7f98a5');
+    put(69, 27, 'M            sound ' + (save.mute ? 'OFF' : 'ON'), '#7f98a5');
     put(69, 29, 'reach the internet.', '#5ee1ff');
   }
 
@@ -498,21 +501,23 @@
     const it = hubItems()[hubSel];
     hubMsg = '';
     if (!it) return;
-    if (it.kind === 'start') return startRun();
+    const before = save.bytes + JSON.stringify(save.up) + JSON.stringify(save.forms) + save.form;
+    if (it.kind === 'start') { sfx('uiok'); return startRun(); }
     if (it.kind === 'formbuy') {
       const F = OW.FORMS[it.id];
-      if (save.forms[it.id]) { save.form = it.id; persist(); return; }
+      if (save.forms[it.id]) { save.form = it.id; persist(); sfx('uiok'); return; }
       if (save.bytes >= F.cost) { save.bytes -= F.cost; save.forms[it.id] = true; save.form = it.id; persist(); hubMsg = 'restored ' + F.name; }
       else hubMsg = 'not enough recovered bytes';
     }
     if (it.kind === 'meta') {
       const m = OW.META.find((x) => x.id === it.id);
       const r = save.up[m.id] || 0;
-      if (r >= m.max) return;
+      if (r >= m.max) { sfx('uino'); return; }
       const c = m.cost(r);
       if (save.bytes >= c) { save.bytes -= c; save.up[m.id] = r + 1; persist(); }
       else hubMsg = 'not enough recovered bytes';
     }
+    sfx(save.bytes + JSON.stringify(save.up) + JSON.stringify(save.forms) + save.form !== before ? 'uiok' : 'uino');
   }
 
   function startRun() {
@@ -543,7 +548,7 @@
       if (G.over) { if (G.overT > 1) { if (!banked) bankRun(); mode = 'hub'; banked = null; } }
       else if (G.choices) {
         const i = cardAt(c.x, c.y);
-        if (i >= 0) { OW.applyChoice(G, i); G.sel = 0; }
+        if (i >= 0) { OW.applyChoice(G, i); G.sel = 0; sfx('uiok'); }
         else if (c.y / CH > 23 && c.y / CH < 26) OW.reroll(G);
       }
     } else if (mode === 'pause') mode = 'run';
@@ -574,10 +579,11 @@
     ctx.fillStyle = 'rgba(4,8,12,0.7)';
     ctx.fillRect(0, 0, VW, VH);
     setFont();
-    panel(35, 10, 31, 10, 'PAUSED');
+    panel(35, 10, 31, 11, 'PAUSED');
     putC(13, '[P] / [ESC]   resume', '#cfe3ea');
     putC(15, '[Q]           abandon run', '#cfe3ea');
-    putC(17, 'bytes are banked on abandon', '#7f98a5');
+    putC(16, '[M]           sound ' + (save.mute ? 'OFF' : 'ON'), '#cfe3ea');
+    putC(18, 'bytes are banked on abandon', '#7f98a5');
   }
 
   function drawOver() {
@@ -629,10 +635,11 @@
   function handleKeys() {
     while (pressed.length) {
       const k = pressed.shift();
+      if (k === 'm') { save.mute = !save.mute; OW.audio.setMuted(save.mute); persist(); if (!save.mute) sfx('uiok'); continue; }
       if (mode === 'hub') {
         const n = hubItems().length;
-        if (k === 'arrowdown' || k === 's') hubSel = (hubSel + 1) % n;
-        else if (k === 'arrowup' || k === 'w') hubSel = (hubSel + n - 1) % n;
+        if (k === 'arrowdown' || k === 's') { hubSel = (hubSel + 1) % n; sfx('uimove'); }
+        else if (k === 'arrowup' || k === 'w') { hubSel = (hubSel + n - 1) % n; sfx('uimove'); }
         else if (k === 'enter' || k === ' ') hubActivate();
         else if (k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd' || k === 'tab') {
           const owned = Object.keys(OW.FORMS).filter((f) => save.forms[f]);
@@ -643,14 +650,14 @@
         }
       } else if (mode === 'run') {
         if (G.choices) {
-          if (k === '1' || k === '2' || k === '3') OW.applyChoice(G, +k - 1);
+          if (k === '1' || k === '2' || k === '3') { OW.applyChoice(G, +k - 1); sfx('uiok'); }
           else if (k === 'arrowleft' || k === 'a') G.sel = ((G.sel || 0) + 2) % 3;
           else if (k === 'arrowright' || k === 'd') G.sel = ((G.sel || 0) + 1) % 3;
-          else if (k === 'enter' || k === ' ') OW.applyChoice(G, G.sel || 0);
-          else if (k === 'r') OW.reroll(G);
+          else if (k === 'enter' || k === ' ') { OW.applyChoice(G, G.sel || 0); sfx('uiok'); }
+          else if (k === 'r') sfx(OW.reroll(G) ? 'uimove' : 'uino');
           if (!G.choices) G.sel = 0;
         } else if (G.over) {
-          if (k === 'enter' && G.overT > 1) { if (!banked) bankRun(); mode = 'hub'; banked = null; }
+          if (k === 'enter' && G.overT > 1) { if (!banked) bankRun(); mode = 'hub'; banked = null; sfx('uiok'); }
         } else if (k === 'p' || k === 'escape') mode = 'pause';
         else if (k === ' ') dashQueued = true;
       } else if (mode === 'pause') {
@@ -660,6 +667,20 @@
     }
   }
 
+  // Play queued sim events, quieter the farther they are from the player.
+  function drainSound() {
+    const ev = G.ev;
+    if (!ev.length) return;
+    const p = G.p;
+    for (let i = 0; i < ev.length; i++) {
+      const e = ev[i];
+      let v = 1;
+      if (e[1] !== undefined) v = Math.max(0.2, 1 - Math.hypot(e[1] - p.x, e[2] - p.y) / 900);
+      sfx(e[0], v, e[3]);
+    }
+    ev.length = 0;
+  }
+
   function frame(now) {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
@@ -667,7 +688,7 @@
     if (clickQueued) { handleClick(clickQueued); clickQueued = null; }
     if (mode === 'hub' && mouse.moved) {
       const i = hubRows.indexOf(Math.floor(mouse.y / CH));
-      if (i >= 0 && mouse.x / CW > 3 && mouse.x / CW < 65) hubSel = i;
+      if (i >= 0 && mouse.x / CW > 3 && mouse.x / CW < 65 && hubSel !== i) { hubSel = i; sfx('uimove'); }
     } else if (mode === 'run' && G.choices && mouse.moved) {
       const i = cardAt(mouse.x, mouse.y);
       if (i >= 0) G.sel = i;
@@ -686,6 +707,7 @@
         n++;
       }
       if (n === 4) acc = 0;
+      drainSound();
       if (G.over && !banked) bankRun();
     }
 

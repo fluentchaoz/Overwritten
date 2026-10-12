@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OVERWRITTEN - sound test</title>
+<style>
+  body { background: #07090c; color: #cfe3ea; font: 16px "DejaVu Sans Mono", "Courier New", monospace; margin: 0; padding: 24px 16px; }
+  h1 { font-size: 20px; letter-spacing: 6px; margin: 0 0 4px; }
+  p { color: #5f7a88; margin: 0 0 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; max-width: 900px; }
+  button { background: #0d1a22; color: #9fd6e8; border: 1px solid #3b5566; padding: 10px 6px; font: inherit; cursor: pointer; }
+  button:hover, button:focus-visible { border-color: #8affb0; color: #8affb0; outline: none; }
+  button:active { background: #14303b; }
+  h2 { font-size: 14px; color: #5f7a88; margin: 22px 0 8px; font-weight: normal; letter-spacing: 3px; }
+</style>
+</head>
+<body>
+<h1>O V E R W R I T T E N</h1>
+<p>sound test. every effect is synthesized live, no audio files. click to audition.</p>
+<div id="out"></div>
+<script src="js/audio.js"></script>
+<script>
+  const groups = {
+    'WEAPONS': ['grep', 'ping', 'slash', 'rm', 'cronset', 'blast', 'ebeep'],
+    'COMBAT': ['hit', 'kill', 'killbig', 'hurt', 'spy', 'tropen', 'trojan', 'elite'],
+    'PICKUPS': ['bit', 'chest', 'heal', 'magnet', 'levelup', 'dash', 'revive'],
+    'BOSS + EVENTS': ['purge', 'bossintro', 'bosstele', 'bosscharge', 'bandtele', 'bandfire', 'bossspawn', 'bossdie', 'portal', 'win', 'death'],
+    'MENU': ['uimove', 'uiok', 'uino'],
+  };
+  const out = document.getElementById('out');
+  for (const [title, names] of Object.entries(groups)) {
+    const h = document.createElement('h2'); h.textContent = title; out.appendChild(h);
+    const grid = document.createElement('div'); grid.className = 'grid'; out.appendChild(grid);
+    for (const n of names) {
+      const b = document.createElement('button'); b.textContent = n;
+      b.addEventListener('click', () => { OW.audio.init(); OW.audio.play(n, 1, n === 'kill' ? 1 : undefined); });
+      grid.appendChild(b);
+    }
+  }
+</script>
+</body>
+</html>
