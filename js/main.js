@@ -12,7 +12,7 @@
 
   // ------------------------------------------------------------------ persistence
   const SAVE_KEY = 'overwritten.save.v1';
-  let save = { bytes: 0, up: {}, forms: { txt: true }, form: 'txt', best: 0, runs: 0, wins: 0, mute: false };
+  let save = { bytes: 0, up: {}, forms: { txt: true }, form: 'txt', dashes: { undo: true }, dash: 'undo', specials: { taskmgr: true }, special: 'taskmgr', best: 0, runs: 0, wins: 0, mute: false };
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (raw) save = Object.assign(save, JSON.parse(raw));
@@ -33,6 +33,13 @@
   let scale = 1;
   const params = new URLSearchParams(location.search);
   const skipT = +params.get('t') || 0;
+  // ?unlock=1 : every form, dash program and special unlocked (and some bytes), for trying things out.
+  if (params.get('unlock')) {
+    for (const k in OW.FORMS) save.forms[k] = true;
+    for (const k in OW.DASHES) save.dashes[k] = true;
+    for (const k in OW.SPECIALS) save.specials[k] = true;
+    save.bytes = Math.max(save.bytes, 2000);
+  }
 
   // ------------------------------------------------------------------ canvas sizing
   function resize() {
@@ -51,6 +58,7 @@
   // ------------------------------------------------------------------ input
   const keys = Object.create(null);
   let dashQueued = false;
+  let specialQueued = false;
   const pressed = [];
   window.addEventListener('keydown', (e) => {
     OW.audio.init();
@@ -83,7 +91,7 @@
   window.addEventListener('mousemove', toLogical);
   window.addEventListener('contextmenu', (e) => e.preventDefault());
   let clickQueued = null;
-  window.addEventListener('mousedown', (e) => { OW.audio.init(); toLogical(e); if (e.button === 0) clickQueued = { x: mouse.x, y: mouse.y }; });
+  window.addEventListener('mousedown', (e) => { OW.audio.init(); toLogical(e); if (e.button === 0) clickQueued = { x: mouse.x, y: mouse.y }; if (e.button === 2) specialQueued = true; });
 
   // ------------------------------------------------------------------ text-grid helpers
   ctx.textAlign = 'center';
@@ -241,7 +249,13 @@
         }
       } else if (f.k === 'ghost') {
         ctx.globalAlpha = 1 - f.t / 0.5;
-        for (let i = 0; i <= 12; i++) { const k = i / 12; putAt(SX(f.x0 + (f.x1 - f.x0) * k), SY(f.y0 + (f.y1 - f.y0) * k), '^Z', '#8ab4ff'); }
+        const gl = f.ch ? f.ch + f.ch : '^Z';
+        for (let i = 0; i <= 12; i++) { const k = i / 12; putAt(SX(f.x0 + (f.x1 - f.x0) * k), SY(f.y0 + (f.y1 - f.y0) * k), gl, f.col || '#8ab4ff'); }
+        ctx.globalAlpha = 1;
+      } else if (f.k === 'beam') {
+        ctx.globalAlpha = Math.max(0, 1 - f.t / f.dur);
+        const len = Math.hypot(f.x1 - f.x0, f.y1 - f.y0), n = Math.max(2, Math.floor(len / 13));
+        for (let i = 0; i <= n; i++) { const k = i / n; putAt(SX(f.x0 + (f.x1 - f.x0) * k), SY(f.y0 + (f.y1 - f.y0) * k), i % 2 ? f.ch : '-', f.col); }
         ctx.globalAlpha = 1;
       }
     }
@@ -252,6 +266,29 @@
       if (!on(sx, sy, 20)) continue;
       if (b.kind === 'chest') sprite([b.ch], sx, sy + Math.sin(G.t * 4) * 2, b.col);
       else sprite([b.ch], sx, sy, b.col);
+    }
+
+    // symlinks, dash markers, decoy
+    for (const l of G.links) {
+      const ax = SX(l.a.x), ay = SY(l.a.y), bx = SX(l.b.x), by = SY(l.b.y);
+      const pulse = Math.floor(G.t * 4) % 2;
+      ctx.globalAlpha = 0.25;
+      const ld = Math.hypot(bx - ax, by - ay), ln = Math.floor(ld / 26);
+      for (let i = 1; i < ln; i++) putAt(ax + ((bx - ax) * i) / ln, ay + ((by - ay) * i) / ln, '.', '#ffb454');
+      ctx.globalAlpha = Math.min(1, l.t);
+      sprite([pulse ? '(O)' : '(o)'], ax, ay, '#ffb454');
+      sprite([pulse ? '(o)' : '(O)'], bx, by, '#ffb454');
+      ctx.globalAlpha = 1;
+    }
+    if (p.anchor) sprite(['[A]'], SX(p.anchor.x), SY(p.anchor.y), Math.floor(G.t * 4) % 2 ? '#8affb0' : '#3fa66a');
+    if (p.savept) sprite(['[S]'], SX(p.savept.x), SY(p.savept.y), Math.floor(G.t * 4) % 2 ? '#ffe08a' : '#a88f3a');
+    if (G.decoy) {
+      const sx = SX(G.decoy.x), sy = SY(G.decoy.y);
+      ctx.globalAlpha = 0.55 + 0.4 * Math.sin(G.t * 14);
+      sprite(['[?]'], sx, sy, '#ffd24a');
+      ctx.globalAlpha = 0.4;
+      putAt(sx - CW * 2, sy + CH, bar(G.decoy.t / G.decoy.max, 3, '#', '.'), '#ffd24a');
+      ctx.globalAlpha = 1;
     }
 
     // portal
@@ -278,11 +315,39 @@
       if (e.flash > 0) col = '#ffffff';
       if (e.boss && e.mode === 'tele') col = Math.floor(G.t * 16) % 2 ? '#ff5f5f' : col;
       if (e.type === 'trojan' && e.open) col = Math.floor(G.t * 20) % 2 ? '#ff5f5f' : '#ffffff';
+      if (e.stun > 0) col = Math.floor(G.t * 12) % 2 ? '#5ee1ff' : '#2a6f8a';
       if (e.boss && e.intro > 0) ctx.globalAlpha = 0.5;
       sprite(rows, sx, sy, col);
       ctx.globalAlpha = 1;
       if (e.elite) putAt(sx, sy - rows.length * CH * 0.5 - CH * 0.5, e.mod, OW.ELITE_MODS[e.mod].col);
+      if ((G.pas.scan || 0) >= 1 && e.type === 'trojan' && !e.open) putAt(sx - CW * 2, sy - CH * 1.1, 'TROJAN', '#ff79c6');
     }
+    // Port Scan: point at things you can't see yet
+    if ((G.pas.scan || 0) >= 1) {
+      const edge = (wx, wy, ch, col) => {
+        const dx = wx - p.x, dy = wy - p.y;
+        if (Math.abs(dx) < VW / 2 - 20 && Math.abs(dy) < VH / 2 - 30) return;
+        const k = Math.min((VW / 2 - 40) / Math.max(1, Math.abs(dx)), (VH / 2 - 55) / Math.max(1, Math.abs(dy)));
+        putAt(VW / 2 + dx * k, VH / 2 + dy * k, ch, col);
+      };
+      for (const e of G.enemies) if (e.elite) edge(e.x, e.y, '<' + e.mod + '>', OW.ELITE_MODS[e.mod].col);
+      for (const b of G.bits) if (b.kind === 'chest') edge(b.x, b.y, '[▣]', '#ffd24a');
+    }
+
+    // allies, clones, cipher ring
+    for (const a of G.allies) {
+      const sx = SX(a.x), sy = SY(a.y);
+      if (!on(sx, sy, 60)) continue;
+      ctx.globalAlpha = Math.min(0.85, a.t * 0.9);
+      sprite(a.rows, sx, sy, Math.floor(G.t * 6) % 2 ? '#8affb0' : '#4be0a0');
+      ctx.globalAlpha = 1;
+    }
+    for (const c of G.clones) {
+      ctx.globalAlpha = c.mode === 'orbit' ? 0.75 : 0.45;
+      sprite([G.form.art], SX(c.x), SY(c.y), c.mode === 'orbit' ? '#ff9ae6' : '#9fd6e8');
+      ctx.globalAlpha = 1;
+    }
+    for (const o of G.orbitPts) putAt(SX(o.x), SY(o.y), o.ch, '#5ee1ff');
 
     // player shots
     for (const s of G.shots) {
@@ -332,7 +397,11 @@
       const sx = SX(p.x), sy = SY(p.y);
       let col = G.form.col;
       if (p.invuln > 0 && Math.floor(G.t * 20) % 2) col = '#ffffff';
+      if (G.sudoT > 0) col = Math.floor(G.t * 14) % 2 ? '#ffe08a' : '#ffffff';
+      if (G.hidden || p.phase > 0) ctx.globalAlpha = p.phase > 0 ? 0.35 : 0.5;
       sprite([G.form.art], sx, sy, col);
+      ctx.globalAlpha = 1;
+      if (G.hidden) putAt(sx - CW * 2.5, sy + CH, 'hidden', '#7f98a5');
     }
 
     // particles + damage numbers
@@ -356,6 +425,52 @@
         if (h < 0.3) { ctx.fillText(h < 0.15 ? '░' : '▒', c * CW + CW / 2, CH / 2); ctx.fillText(h < 0.15 ? '▒' : '░', c * CW + CW / 2, VH - CH / 2); }
       }
       ctx.globalAlpha = 1;
+    }
+    drawOverlays();
+  }
+
+  // Screen-space effects for the specials and passives.
+  function drawOverlays() {
+    if (G.freeze > 0) { ctx.fillStyle = 'rgba(60,110,200,0.17)'; ctx.fillRect(0, 0, VW, VH); }
+    if (G.safeT > 0) { ctx.fillStyle = 'rgba(60,200,120,' + (0.05 + 0.03 * Math.sin(G.t * 6)) + ')'; ctx.fillRect(0, 0, VW, VH); }
+    for (const f of G.fx) {
+      if (f.k === 'flash') {
+        ctx.globalAlpha = 0.4 * (1 - f.t / f.dur); ctx.fillStyle = f.col; ctx.fillRect(0, 0, VW, VH); ctx.globalAlpha = 1;
+      } else if (f.k === 'bsod') {
+        const a = f.t < 0.9 ? 0.62 : 0.62 * (1 - (f.t - 0.9) / (f.dur - 0.9));
+        ctx.globalAlpha = a; ctx.fillStyle = '#0a1aa8'; ctx.fillRect(0, 0, VW, VH);
+        ctx.globalAlpha = Math.min(1, a * 1.6);
+        setFont(BIG); ctx.fillStyle = '#ffffff'; ctx.fillText(':(', VW / 2, CH * 12);
+        setFont();
+        putC(15, 'A problem has been detected and your processes have been stopped.', '#ffffff');
+        putC(17, 'ENEMY_PROCESSES_NOT_RESPONDING', '#ffffff');
+        putC(19, '*** STOP: 0x000000BS', '#bcd2ff');
+        ctx.globalAlpha = 1;
+      } else if (f.k === 'wipe') {
+        const k = f.t / f.dur, x = k * (VW + 140) - 70;
+        ctx.globalAlpha = 0.3 * (1 - k); ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, VW, VH);
+        ctx.globalAlpha = 1 - k * 0.6;
+        const band = ['░', '▒', '▓', '█', '▓', '▒', '░'];
+        for (let i = 0; i < band.length; i++) {
+          const cxp = x + (i - 3) * CW;
+          if (cxp < -CW || cxp > VW + CW) continue;
+          ctx.fillStyle = i === 3 ? '#ffffff' : '#ff8a3d';
+          for (let r = 0; r < ROWS; r++) ctx.fillText(band[i], cxp, r * CH + CH / 2);
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+    // Memory Leak: the screen slowly corrupts
+    const v = G.leakVis || 0;
+    if (v > 0) {
+      ctx.fillStyle = '#ff6b6b'; ctx.globalAlpha = 0.25 + v * 0.3;
+      const n = Math.floor(v * 45);
+      for (let i = 0; i < n; i++) ctx.fillText('01#%&@$?'[Math.floor(Math.random() * 8)], Math.random() * VW, Math.random() * VH);
+      ctx.globalAlpha = 1;
+      if (Math.random() < v * 0.12) {
+        const dpr = canvas.width / VW, y = Math.floor(Math.random() * VH), h = 6 + Math.floor(Math.random() * 20), off = (Math.random() - 0.5) * 50 * v;
+        ctx.drawImage(canvas, 0, y * dpr, canvas.width, h * dpr, off * dpr, y * dpr, canvas.width, h * dpr);
+      }
     }
   }
 
@@ -406,10 +521,31 @@
     // weapons / passives
     const ws = G.weapons.map((w) => (w.evolved ? OW.WEAPONS[w.id].evo.name : OW.WEAPONS[w.id].name) + ':' + w.lv);
     put(1, ROWS - 2, 'WPN ' + ws.join('  '), '#9fd6e8');
-    const ps = Object.keys(G.pas).map((k) => OW.PASSIVES[k].name + ':' + G.pas[k]);
-    put(1, ROWS - 1, 'SYS ' + (ps.join('  ') || '-'), '#7f98a5');
-    const dash = G.p.dashCd > 0 ? '^Z ' + bar(1 - G.p.dashCd / 14, 8, '=', '.') + ' ' + Math.ceil(G.p.dashCd) + 's' : '[SPACE] ^Z READY';
-    put(COLS - dash.length - 1, ROWS - 1, dash, G.p.dashCd > 0 ? '#5f7a88' : '#8ab4ff');
+    const sh = (n) => n.split(' ')[0].replace(/[^A-Za-z0-9-]/g, '').slice(0, 6);
+    const ps = Object.keys(G.pas).map((k) => sh(OW.PASSIVES[k].name) + ':' + G.pas[k]);
+    put(1, ROWS - 1, 'SYS ' + (ps.join(' ') || '-'), '#7f98a5');
+
+    // dash + special
+    const ds = OW.powers.dashStatus(G);
+    const dtxt = 'DASH[SPACE] ' + ds.name + ' ' + ds.text;
+    put(COLS - dtxt.length - 1, ROWS - 2, dtxt, ds.col);
+    const ss = OW.powers.specialStatus(G);
+    const SN = 12, sf = Math.floor((ss.charge / 100) * SN), tick = Math.min(SN, Math.max(1, Math.round((ss.need / 100) * SN)));
+    let sb = '';
+    for (let i = 0; i < SN; i++) sb += i < sf ? '#' : i === tick - 1 ? '|' : '.';
+    const blink = Math.floor(performance.now() / 300) % 2;
+    const stxt = 'SPECIAL[RMB/Q] ' + ss.name + ' [' + sb + '] ' + (ss.ready ? 'READY' : Math.floor(ss.charge) + '%');
+    put(COLS - stxt.length - 1, ROWS - 3, stxt, ss.ready ? (blink ? ss.col : '#ffffff') : '#5f7a88');
+
+    // timed states
+    const st = [];
+    if (G.freeze > 0) st.push('SUSPENDED ' + G.freeze.toFixed(1));
+    if (G.safeT > 0) st.push('SAFE MODE ' + G.safeT.toFixed(1));
+    if (G.sudoT > 0) st.push('SUDO x2 ' + G.sudoT.toFixed(1));
+    if (p.phase > 0) st.push('ALT+TAB');
+    if (G.hidden) st.push('HIDDEN');
+    if (st.length) putC(2, st.join('   '), '#ffe08a');
+    if (G.rules.length) put(1, 2, 'RULES ' + G.rules.map((r) => r.id).join(','), '#ff8a3d');
 
     // boss bar
     const b = G.boss;
@@ -458,41 +594,68 @@
     });
     if (hubMsg) put(5, 28, hubMsg, '#ffb454');
 
-    // right: stats panel
+    // right: details panel
     panel(67, 6, 31, 24, 'FILE PROPERTIES');
     const form = OW.FORMS[save.form];
-    sprite([form.art], 67 * CW + 15 * CW + CW / 2 + CW, 9 * CH + CH / 2, form.col);
-    put(69, 11, 'name:    ' + 'you' + form.name, '#cfe3ea');
-    put(69, 12, 'bytes:   ' + save.bytes, '#ffd24a');
-    put(69, 13, 'runs:    ' + save.runs, '#9fb4be');
-    put(69, 14, 'uplinks: ' + save.wins, '#8affb0');
-    put(69, 15, 'best:    ' + mmss(save.best || 0), '#9fb4be');
-    const dl = wrap(form.desc, 26);
-    dl.forEach((l, i) => put(69, 17 + i, l, '#7f98a5'));
+    sprite([form.art], 67 * CW + 15 * CW + CW / 2 + CW, 8 * CH + CH / 2, form.col);
+    put(69, 10, 'bytes:   ' + save.bytes, '#ffd24a');
+    put(69, 11, 'runs:    ' + save.runs, '#9fb4be');
+    put(69, 12, 'uplinks: ' + save.wins, '#8affb0');
+    put(69, 13, 'best:    ' + mmss(save.best || 0), '#9fb4be');
+    const cur = items[hubSel];
+    if (cur) {
+      let title = '', body = '', tcol = '#e8f1f5';
+      if (cur.kind === 'sel') { const D = SEL[cur.sel].defs[cur.id]; title = D.name; body = D.desc; tcol = D.col || '#e8f1f5'; if (cur.sel === 'special') body += ' Needs ' + D.need + ' charge.'; }
+      else if (cur.kind === 'meta') { const m = OW.META.find((x) => x.id === cur.id); title = m.name; body = m.desc + '.'; }
+      else { title = 'Begin run'; body = 'Leave the Recycle Bin and head for the internet.'; }
+      put(69, 15, title.slice(0, 27), tcol);
+      wrap(body, 27).slice(0, 5).forEach((l, i) => put(69, 16 + i, l, '#7f98a5'));
+    }
     put(69, 22, 'CONTROLS', '#e8f1f5');
     put(69, 23, 'WASD/arrows  move', '#7f98a5');
     put(69, 24, 'MOUSE        aim', '#7f98a5');
-    put(69, 25, 'SPACE        ctrl+z', '#7f98a5');
-    put(69, 26, 'P / ESC      pause', '#7f98a5');
-    put(69, 27, 'M            sound ' + (save.mute ? 'OFF' : 'ON'), '#7f98a5');
-    put(69, 29, 'reach the internet.', '#5ee1ff');
+    put(69, 25, 'SPACE        dash', '#7f98a5');
+    put(69, 26, 'RMB / Q      special', '#7f98a5');
+    put(69, 27, 'P / ESC      pause', '#7f98a5');
+    put(69, 28, 'M            sound ' + (save.mute ? 'OFF' : 'ON'), '#7f98a5');
+  }
+
+  // Loadout selectors: form (what you are), dash program, special attack.
+  const SEL = {
+    form: { label: 'FORM', defs: OW.FORMS, owned: 'forms', eq: 'form' },
+    dash: { label: 'DASH', defs: OW.DASHES, owned: 'dashes', eq: 'dash' },
+    special: { label: 'SPECIAL', defs: OW.SPECIALS, owned: 'specials', eq: 'special' },
+  };
+  const hubView = {};
+  for (const k in SEL) hubView[k] = Math.max(0, Object.keys(SEL[k].defs).indexOf(save[SEL[k].eq]));
+
+  function selItem(kind) {
+    const S = SEL[kind], keys = Object.keys(S.defs), id = keys[hubView[kind]], D = S.defs[id];
+    const owned = !!save[S.owned][id], eq = save[S.eq] === id;
+    return {
+      kind: 'sel', sel: kind, id,
+      label: S.label.padEnd(8) + '< ' + D.name.padEnd(22) + ' >',
+      right: eq ? 'EQUIPPED' : owned ? 'owned' : D.cost + ' B',
+      rcol: eq ? '#8affb0' : owned ? '#3fa66a' : '#ffd24a',
+    };
+  }
+  function cycleSel(kind, dir) {
+    const n = Object.keys(SEL[kind].defs).length;
+    hubView[kind] = (hubView[kind] + dir + n) % n;
+    sfx('uimove');
   }
 
   function hubItems() {
     const items = [];
     items.push({ kind: 'start', label: '[ BEGIN RUN ]  C:\\Temp', right: skipT ? 'debug t+' + skipT + 's' : '', rcol: '#ffb454', gap: 2 });
-    const fkeys = Object.keys(OW.FORMS);
-    // list all forms with lock status (Enter equips / restores)
-    fkeys.forEach((k) => {
-      const F = OW.FORMS[k];
-      const owned = save.forms[k];
-      items.push({ kind: 'formbuy', id: k, label: '  ' + (save.form === k ? '*' : ' ') + ' ' + F.name.padEnd(6) + F.desc.split('. ')[0], right: owned ? 'restored' : F.cost + ' B', rcol: owned ? '#3fa66a' : '#ffd24a', dim: !owned });
-    });
-    items[items.length - 1].gap = 2;
+    items.push(selItem('form'));
+    items.push(selItem('dash'));
+    const sp = selItem('special'); sp.gap = 2; items.push(sp);
     OW.META.forEach((m) => {
       const r = save.up[m.id] || 0;
       const done = r >= m.max;
-      items.push({ kind: 'meta', id: m.id, label: m.name.padEnd(16) + '[' + '■'.repeat(r) + '□'.repeat(m.max - r) + '] ' + m.desc, right: done ? 'MAX' : m.cost(r) + ' B', rcol: done ? '#3fa66a' : '#ffd24a' });
+      const right = done ? 'MAX' : m.cost(r) + ' B';
+      items.push({ kind: 'meta', id: m.id, label: (m.name.padEnd(16) + '[' + '■'.repeat(r) + '□'.repeat(m.max - r) + '] ' + m.desc).slice(0, 56 - right.length), right, rcol: done ? '#3fa66a' : '#ffd24a' });
     });
     return items;
   }
@@ -501,13 +664,14 @@
     const it = hubItems()[hubSel];
     hubMsg = '';
     if (!it) return;
-    const before = save.bytes + JSON.stringify(save.up) + JSON.stringify(save.forms) + save.form;
+    const before = save.bytes + JSON.stringify(save.up);
     if (it.kind === 'start') { sfx('uiok'); return startRun(); }
-    if (it.kind === 'formbuy') {
-      const F = OW.FORMS[it.id];
-      if (save.forms[it.id]) { save.form = it.id; persist(); sfx('uiok'); return; }
-      if (save.bytes >= F.cost) { save.bytes -= F.cost; save.forms[it.id] = true; save.form = it.id; persist(); hubMsg = 'restored ' + F.name; }
-      else hubMsg = 'not enough recovered bytes';
+    if (it.kind === 'sel') {
+      const S = SEL[it.sel], D = S.defs[it.id];
+      if (save[S.owned][it.id]) { save[S.eq] = it.id; persist(); sfx('uiok'); return; }
+      if (save.bytes >= D.cost) { save.bytes -= D.cost; save[S.owned][it.id] = true; save[S.eq] = it.id; persist(); hubMsg = 'restored ' + D.name; sfx('uiok'); }
+      else { hubMsg = 'not enough recovered bytes'; sfx('uino'); }
+      return;
     }
     if (it.kind === 'meta') {
       const m = OW.META.find((x) => x.id === it.id);
@@ -517,11 +681,11 @@
       if (save.bytes >= c) { save.bytes -= c; save.up[m.id] = r + 1; persist(); }
       else hubMsg = 'not enough recovered bytes';
     }
-    sfx(save.bytes + JSON.stringify(save.up) + JSON.stringify(save.forms) + save.form !== before ? 'uiok' : 'uino');
+    sfx(save.bytes + JSON.stringify(save.up) !== before ? 'uiok' : 'uino');
   }
 
   function startRun() {
-    G = OW.newRun(save, save.form, { t: skipT });
+    G = OW.newRun(save, save.form, { t: skipT, dash: save.dash, special: save.special });
     window.OW.game = G;
     mode = 'run';
     msg0();
@@ -543,7 +707,13 @@
     if (mode === 'hub') {
       const row = Math.floor(c.y / CH), col = c.x / CW;
       const i = hubRows.indexOf(row);
-      if (i >= 0 && col > 3 && col < 65) { hubSel = i; hubActivate(); }
+      if (i >= 0 && col > 3 && col < 65) {
+        hubSel = i;
+        const it = hubItems()[i];
+        if (it.kind === 'sel' && col >= 14 && col < 18) cycleSel(it.sel, -1);
+        else if (it.kind === 'sel' && col >= 39 && col < 43) cycleSel(it.sel, 1);
+        else hubActivate();
+      }
     } else if (mode === 'run') {
       if (G.over) { if (G.overT > 1) { if (!banked) bankRun(); mode = 'hub'; banked = null; } }
       else if (G.choices) {
@@ -641,12 +811,9 @@
         if (k === 'arrowdown' || k === 's') { hubSel = (hubSel + 1) % n; sfx('uimove'); }
         else if (k === 'arrowup' || k === 'w') { hubSel = (hubSel + n - 1) % n; sfx('uimove'); }
         else if (k === 'enter' || k === ' ') hubActivate();
-        else if (k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd' || k === 'tab') {
-          const owned = Object.keys(OW.FORMS).filter((f) => save.forms[f]);
-          const i = owned.indexOf(save.form);
-          const dir = k === 'arrowleft' || k === 'a' ? -1 : 1;
-          save.form = owned[(i + dir + owned.length) % owned.length];
-          persist();
+        else if (k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd') {
+          const it = hubItems()[hubSel];
+          if (it && it.kind === 'sel') cycleSel(it.sel, k === 'arrowleft' || k === 'a' ? -1 : 1);
         }
       } else if (mode === 'run') {
         if (G.choices) {
@@ -660,6 +827,7 @@
           if (k === 'enter' && G.overT > 1) { if (!banked) bankRun(); mode = 'hub'; banked = null; sfx('uiok'); }
         } else if (k === 'p' || k === 'escape') mode = 'pause';
         else if (k === ' ') dashQueued = true;
+        else if (k === 'q') specialQueued = true;
       } else if (mode === 'pause') {
         if (k === 'p' || k === 'escape') mode = 'run';
         else if (k === 'q') { G.over = 'dead'; G.overT = 0; G.p.hp = 0; mode = 'run'; }
@@ -701,8 +869,8 @@
       let n = 0;
       while (acc >= STEP && n < 4) {
         const mv = readMove();
-        OW.step(G, STEP, { dx: mv.dx, dy: mv.dy, dash: dashQueued, ox: mouse.x - VW / 2, oy: mouse.y - VH / 2 });
-        dashQueued = false;
+        OW.step(G, STEP, { dx: mv.dx, dy: mv.dy, dash: dashQueued, special: specialQueued, ox: mouse.x - VW / 2, oy: mouse.y - VH / 2 });
+        dashQueued = false; specialQueued = false;
         acc -= STEP;
         n++;
       }

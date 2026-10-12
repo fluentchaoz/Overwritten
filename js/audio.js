@@ -122,6 +122,36 @@
       { w: 'sq', frames: sw(40, 220, 30, 9, 0) },
     ],
     revive: () => [{ w: 'pulse', frames: arp([262, 330, 392, 523, 659, 784, 1047], 3, 10) }, { w: 'nz', frames: sw(10, 500, 4000, 6, 0) }],
+    // ---- dash programs
+    anchor: () => [{ w: 'sq', frames: cat(hold(1175, 3, 8, 6), hold(1568, 5, 8, 0)) }],
+    savept: () => [{ w: 'pulse', frames: cat(hold(880, 3, 8, 6), hold(660, 3, 7, 5), hold(990, 5, 8, 0)) }],
+    delmove: () => [{ w: 'nz', frames: sw(8, 6000, 1500, 11, 0) }, { w: 'sq', frames: sw(8, 1800, 200, 10, 0) }, { w: 'p4', frames: sw(5, 400, 900, 7, 0) }],
+    altab: () => [{ w: 'pulse', frames: cat(hold(500, 2, 9), hold(750, 2, 9), hold(1000, 2, 8), hold(1500, 4, 7, 0)) }, { w: 'nz', frames: hold(7000, 4, 5, 0) }],
+    refresh: () => [{ w: 'sq', frames: sw(10, 200, 1400, 9, 2) }, { w: 'nz', frames: sw(10, 1200, 5000, 8, 0) }],
+    // ---- specials
+    taskmgr: () => [{ w: 'sq', frames: sw(22, 1600, 90, 9, 5) }, { w: 'p5', frames: sw(22, 400, 40, 6, 3) }, { w: 'nz', frames: cat(hold(900, 3, 9, 0)) }],
+    kill9: () => [{ w: 'nz', frames: sw(5, 7000, 2000, 12, 6) }, { w: 'sq', frames: cat(hold(2400, 2, 12), hold(1200, 2, 10), hold(150, 6, 12, 0)) }],
+    sudo: () => [{ w: 'pulse', frames: arp([196, 294, 392, 587, 784], 3, 10) }, { w: 'p4', frames: sw(15, 100, 200, 8, 0) }],
+    bsod: () => [{ w: 'sq', frames: cat(hold(440, 14, 12), hold(0, 0, 0), hold(330, 10, 12, 4)) }, { w: 'nz', frames: hold(600, 24, 6, 0) }, { w: 'p5', frames: hold(55, 24, 8, 0) }],
+    safe: () => [{ w: 'pulse', frames: arp([392, 523, 659, 523, 392], 4, 8) }],
+    forkcast: () => [{ w: 'sq', frames: cat(hold(520, 3, 9), rest(1), hold(520, 3, 9), rest(1), hold(780, 6, 10, 0)) }, { w: 'p4', frames: hold(260, 14, 5, 0) }],
+    format: () => [
+      { w: 'nz', frames: sw(50, 1400, 40, 15, 0) },
+      { w: 'sq', frames: sw(46, 900, 25, 14, 0) },
+      { w: 'p4', frames: cat(hold(90, 8, 12), sw(30, 200, 30, 11, 0)) },
+    ],
+    ready: () => [{ w: 'pulse', frames: cat(hold(784, 3, 8), hold(1047, 3, 9), hold(1568, 6, 9, 0)) }],
+    // ---- passives
+    fork: () => [{ w: 'pulse', frames: sw(4, 1300, 2000, 5, 0) }],
+    gc: () => [{ w: 'sq', frames: sw(18, 300, 60, 8, 3) }, { w: 'p4', frames: sw(18, 120, 30, 6, 2) }],
+    compress: () => [{ w: 'nz', frames: sw(12, 5000, 500, 8, 3) }, { w: 'sq', frames: sw(12, 1400, 180, 8, 6) }, { w: 'pulse', frames: hold(300, 4, 8, 0) }],
+    link: () => [{ w: 'sq', frames: arp([392, 784, 392], 2, 7) }, { w: 'p5', frames: sw(8, 500, 2000, 4, 0) }],
+    ally: () => [{ w: 'sq', frames: arp([330, 440, 554], 2, 7) }],
+    shield: () => [{ w: 'pulse', frames: cat(hold(2400, 1, 8), hold(3200, 2, 6, 0)) }],
+    rule: () => [{ w: 'p5', frames: warble(sw(24, 150, 700, 8, 4), 0.2, 1.7) }, { w: 'sq', frames: arp([523, 392, 659, 440], 4, 6) }],
+    hide: () => [{ w: 'sq', frames: sw(12, 900, 160, 5, 0) }],
+    decoy: () => [{ w: 'pulse', frames: cat(hold(1175, 2, 7), hold(880, 2, 7), hold(1175, 2, 7), hold(1568, 4, 6, 0)) }],
+    scan: () => [{ w: 'sq', frames: cat(hold(1760, 2, 7), hold(2349, 3, 7, 0)) }, { w: 'p4', frames: hold(880, 5, 4, 0) }],
     uimove: () => [{ w: 'sq', frames: hold(1500, 2, 5, 2) }],
     uiok: () => [{ w: 'sq', frames: cat(hold(880, 3, 7, 4), hold(1320, 4, 7, 0)) }],
     uino: () => [{ w: 'sq', frames: cat(hold(180, 5, 8, 6), hold(140, 6, 8, 0)) }],
@@ -134,6 +164,8 @@
     spy: { gap: 80, pri: 0 }, blast: { gap: 45, pri: 1 }, cronset: { gap: 60, pri: 0 }, ebeep: { gap: 80, pri: 1 },
     hurt: { gap: 80, pri: 3 }, levelup: { gap: 100, pri: 3 }, death: { gap: 100, pri: 3 }, win: { gap: 100, pri: 3 },
     bossdie: { gap: 100, pri: 3 }, bossintro: { gap: 100, pri: 3 }, purge: { gap: 100, pri: 3 },
+    format: { gap: 100, pri: 3 }, taskmgr: { gap: 100, pri: 3 }, bsod: { gap: 100, pri: 3 }, ready: { gap: 200, pri: 3 },
+    fork: { gap: 50, pri: 0 }, shield: { gap: 40, pri: 1 }, ally: { gap: 60, pri: 1 }, link: { gap: 80, pri: 1 }, scan: { gap: 100, pri: 1 },
   };
   const CAP = [14, 20, 26, 36];
 

@@ -13,7 +13,7 @@
   const MAX_ENEMIES = 340;
   const PLAYER_R = 9;
   const MAX_WEAPONS = 6;
-  const MAX_PASSIVES = 6;
+  const MAX_PASSIVES = 8;
 
   // ------------------------------------------------------------------ helpers
   function artSize(rows) {
@@ -63,7 +63,7 @@
 
   // Sound events are queued for the UI layer to play (the sim itself never touches audio).
   function snd(G, n, x, y, a) {
-    if (G.ev.length < 60) G.ev.push([n, x, y, a]);
+    if (!G.silent && G.ev.length < 60) G.ev.push([n, x, y, a]);
   }
 
   function msg(G, text, col, life) {
@@ -94,25 +94,32 @@
     const mv = (id) => (meta.up && meta.up[id]) || 0;
     const maxhp = Math.round((100 + mv('hp') * 10) * form.hp);
     const G = {
-      t: 0, over: null, overT: 0, form, meta: { hp: mv('hp'), dmg: mv('dmg'), spd: mv('spd'), mag: mv('mag'), rr: mv('rr'), rev: mv('rev') },
+      t: 0, over: null, overT: 0, form, meta: { hp: mv('hp'), dmg: mv('dmg'), spd: mv('spd'), mag: mv('mag'), rr: mv('rr'), rev: mv('rev'), dashcd: mv('dashcd'), spchg: mv('spchg'), autorun: mv('autorun') },
       eid: 0, kills: 0, level: 1, xp: 0, pending: 0, choices: null,
       rerolls: mv('rr'), revives: mv('rev'),
-      p: { x: 0, y: 0, hp: maxhp, maxhp, invuln: 0, face: 1, fx: 1, fy: 0, hist: [], histT: 0, dashCd: 0, aim: 0, cox: 200, coy: 0, cx: 200, cy: 0, lastTrailX: 0, lastTrailY: 0 },
+      p: { x: 0, y: 0, hp: maxhp, maxhp, invuln: 0, face: 1, fx: 1, fy: 0, hist: [], histT: 0, dashCd: 0, phase: 0, spdMul: 1, anchor: null, savept: null, aim: 0, cox: 200, coy: 0, cx: 200, cy: 0, lastTrailX: 0, lastTrailY: 0 },
       enemies: [], shots: [], eshots: [], bits: [], fx: [], parts: [], texts: [], msgs: [], hazards: [], timers: [],
       weapons: [], pas: {}, grid: new Map(),
       spawnAcc: 0, eliteT: OW.TUNING.eliteFirst, purge: 0, bossSpawned: false, boss: null, bossDead: false, portal: null,
       shake: 0, glitch: 0, mod: null, bitsCollected: 0, ev: [],
+      // power state (filled in by powers.js)
+      mx: { dmg: 1, cdSpd: 1, espd: 1, shotSpd: 1, xp: 1, killHeal: 0, takeDmg: 1, jitter: 0, mag: 1, spd: 1, ehp: 1 },
+      clones: [], allies: [], links: [], orbitPts: [], rules: [], decoy: null, freeze: 0, safeT: 0, sudoT: 0, hidden: false,
+      stillT: 0, charge: 0, silent: false, dashId: 'undo', specId: 'taskmgr', leakStart: 0, leakVis: 0,
     };
     G.weapons.push({ id: form.start, lv: 1, cd: 0.4, evolved: false });
     recalc(G);
+    if (OW.powers) OW.powers.init(G, opts);
     if (opts.t) G.t = opts.t;
     return G;
   };
 
   function recalc(G) {
     const pa = G.pas;
+    const dmgBase = (1 + 0.1 * (pa.overhead || 0)) * (1 + 0.05 * G.meta.dmg) * G.form.dmg;
     G.mod = {
-      dmg: (1 + 0.1 * (pa.overhead || 0)) * (1 + 0.05 * G.meta.dmg) * G.form.dmg,
+      dmgBase,
+      dmg: dmgBase * (G.mx ? G.mx.dmg : 1),
       cd: Math.max(0.4, 1 - 0.08 * (pa.bandwidth || 0)),
       amt: Math.ceil((pa.regex || 0) / 2),
       spd: (1 + 0.08 * (pa.thru || 0) + 0.04 * G.meta.spd) * G.form.spd,
@@ -127,7 +134,7 @@
   function mkEnemy(G, type, x, y, o) {
     o = o || {};
     const d = OW.ENEMIES[type];
-    const hp = (o.hp || d.hp) * (type === 'boss' ? 1 : enemyHpMult(G)) * (o.hpMul || 1);
+    const hp = (o.hp || d.hp) * (type === 'boss' ? 1 : enemyHpMult(G) * (G.mx ? G.mx.ehp : 1)) * (o.hpMul || 1);
     const e = {
       id: ++G.eid, type, def: d, x, y, hp, maxhp: hp, face: Math.random() < 0.5 ? 1 : -1, t: Math.random() * 3,
       kx: 0, ky: 0, flash: 0, dead: false, ph: Math.random() * TAU, dir: Math.random() < 0.5 ? 1 : -1,
@@ -224,17 +231,30 @@
 
   function updEnemy(G, e, dt) {
     const p = G.p;
-    e.t += dt;
     if (e.flash > 0) e.flash -= dt;
+    if (!e.boss && e.stun > 0) { // Blue Screen: frozen in place, still shoved around by knockback
+      e.stun -= dt;
+      e.x += e.kx * dt; e.y += e.ky * dt;
+      const dc = Math.exp(-8 * dt); e.kx *= dc; e.ky *= dc;
+      return;
+    }
+    e.t += dt;
     if (e.boss) return updBoss(G, e, dt);
 
-    const dx = p.x - e.x, dy = p.y - e.y;
+    // Enemies chase a decoy if one is out, otherwise you.
+    const tg = G.decoy && G.decoy.t > 0 ? G.decoy : p;
+    const dx = tg.x - e.x, dy = tg.y - e.y;
     const d = Math.hypot(dx, dy) || 1;
     const ux = dx / d, uy = dy / d;
-    const sp = e.def.spd * (1 + Math.min(0.25, G.t / OW.TUNING.speedGrowth) + G.purge * 0.015);
+    const sp = e.def.spd * (1 + Math.min(0.25, G.t / OW.TUNING.speedGrowth) + G.purge * 0.015) * G.mx.espd;
     let vx = 0, vy = 0;
+    // Hidden: enemies lose track of you and wander (worm bodies still follow their head).
+    const lost = G.hidden && tg === p && d > 80 && !(e.type === 'worm' && e.leader);
 
-    switch (e.type) {
+    if (lost) {
+      const a = e.ph + e.t * 0.4;
+      vx = Math.cos(a) * sp * 0.45; vy = Math.sin(a) * sp * 0.45;
+    } else switch (e.type) {
       case 'flick': {
         const lat = Math.sin(e.t * 7 + e.ph) * 0.9;
         vx = (ux - uy * lat) * sp; vy = (uy + ux * lat) * sp;
@@ -247,7 +267,7 @@
         vx = ux * sp * rad - uy * sp * 0.7 * e.dir;
         vy = uy * sp * rad + ux * sp * 0.7 * e.dir;
         e.shotT -= dt;
-        if (e.shotT <= 0 && d < 470) {
+        if (e.shotT <= 0 && d < 470 && !(G.safeT > 0)) {
           e.shotT = rr(2.2, 3.2);
           const s = 150;
           snd(G, 'spy', e.x, e.y);
@@ -275,7 +295,7 @@
       case 'trojan': {
         if (!e.open) {
           vx = ux * sp; vy = uy * sp;
-          if (d < 105) { e.open = true; e.ot = 0.5; snd(G, 'tropen', e.x, e.y); }
+          if (d < 105 && !(G.safeT > 0)) { e.open = true; e.ot = 0.5; snd(G, 'tropen', e.x, e.y); }
         } else {
           e.ot -= dt;
           if (e.ot <= 0) trojanBurst(G, e);
@@ -415,14 +435,16 @@
     if (e.boss) return bossDead(G, e);
     snd(G, e.elite || e.def.hp >= 15 ? 'killbig' : 'kill', e.x, e.y, e.r < 12 ? 1.25 : 0.8);
     if (silent) return;
-    const xp = e.def.xp * (e.elite ? 5 : 1);
+    if (OW.powers) OW.powers.onKill(G, e);
+    const xp = (e.xpOverride || e.def.xp) * (e.elite ? 5 : 1);
     if (xp > 0) dropBit(G, e.x, e.y, xp);
     const roll = Math.random();
     if (roll < 0.012) G.bits.push({ x: e.x, y: e.y, v: 0, kind: 'heal', ch: '(+)', col: '#6dff9c', mag: false });
     else if (roll < 0.016) G.bits.push({ x: e.x, y: e.y, v: 0, kind: 'magnet', ch: 'U', col: '#ffd24a', mag: false });
     if (e.elite) {
       G.bits.push({ x: e.x, y: e.y, v: 0, kind: 'chest', ch: '[▣]', col: '#ffd24a', mag: false });
-      if (e.mod === '!') {
+      if (G.safeT > 0) { /* Safe Mode strips elite effects */ }
+      else if (e.mod === '!') {
         G.fx.push({ k: 'ebl', x: e.x, y: e.y, t: 0, delay: 0.7, R: 80, dmg: 18, done: false });
         snd(G, 'ebeep', e.x, e.y);
       } else if (e.mod === '&') {
@@ -444,6 +466,8 @@
   function hurtPlayer(G, dmg) {
     const p = G.p;
     if (p.invuln > 0 || G.over) return;
+    if (OW.powers) dmg = OW.powers.filterDamage(G, dmg);
+    G.stillT = 0;
     p.hp -= dmg;
     snd(G, 'hurt');
     p.invuln = 0.5;
@@ -480,8 +504,10 @@
     return c * s > 0 ? '\\' : '/';
   }
   function shoot(G, ang, dmg, o) {
-    const sp = o.speed || 400;
+    const sp = (o.speed || 400) * G.mx.shotSpd;
+    const fk = G.pas.forkb ? (G.pas.forkb >= 2 ? 2 : 1) : 0;
     G.shots.push({
+      fork: o.fork !== undefined ? o.fork : fk,
       x: G.p.x, y: G.p.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, dmg, r: o.r || 10, life: 1.7,
       pierce: o.pierce || 0, hits: [], ch: o.ch || dirChar(ang), col: o.col || '#5ee1ff', dead: false, ang, sp,
     });
@@ -504,9 +530,9 @@
         const score = lock >= 3 ? d : Math.abs(da) * 260 + d * 0.4;
         if (score < bs) { bs = score; best = e; }
       }
-      if (best) return { ang: Math.atan2(best.y - p.y, best.x - p.x), t: best };
+      if (best) return { ang: Math.atan2(best.y - p.y, best.x - p.x) + (G.mx.jitter ? rr(-G.mx.jitter, G.mx.jitter) : 0), t: best };
     }
-    return { ang: p.aim, t: null };
+    return { ang: p.aim + (G.mx.jitter ? rr(-G.mx.jitter, G.mx.jitter) : 0), t: null };
   }
 
   const FIRE = {
@@ -601,19 +627,45 @@
     }
   }
 
+  // Shadow Copy / fork(): clones mirror the aimed weapons from their own position.
+  function cloneFire(G, w) {
+    if (!G.clones.length || w.id === 'ping' || w.id === 'tail') return;
+    const p = G.p, ox = p.x, oy = p.y, od = G.mod.dmg;
+    G.silent = true;
+    for (const c of G.clones) {
+      p.x = c.x; p.y = c.y; G.mod.dmg = od * c.dmg;
+      FIRE[w.id](G, w);
+    }
+    p.x = ox; p.y = oy; G.mod.dmg = od;
+    G.silent = false;
+  }
+
   function updWeapons(G, dt) {
+    if (G.p.phase > 0) return; // alt+tab: phased out, cannot attack
     for (const w of G.weapons) {
       if (w.id === 'tail') { updTail(G, w, dt); continue; }
-      w.cd -= dt;
+      w.cd -= dt * G.mx.cdSpd;
       if (w.cd <= 0) {
         const cd = FIRE[w.id](G, w);
         w.cd = cd || 0.15;
+        cloneFire(G, w);
       }
     }
   }
 
   // ------------------------------------------------------------------ fx / projectiles
-  function updFx(G, dt) {
+  function forkShot(G, s, hitId) {
+    if (G.shots.length > 260) return;
+    const n = G.pas.forkb >= 3 ? 3 : 2;
+    for (let i = 0; i < n; i++) {
+      const a = s.ang + (i - (n - 1) / 2) * 0.75;
+      G.shots.push({ fork: s.fork - 1, x: s.x, y: s.y, vx: Math.cos(a) * s.sp, vy: Math.sin(a) * s.sp, dmg: s.dmg * 0.6, r: 8, life: 0.8,
+        pierce: 0, hits: [hitId], ch: dirChar(a), col: '#ff9ae6', dead: false, ang: a, sp: s.sp });
+    }
+    snd(G, 'fork', s.x, s.y);
+  }
+
+  function updFx(G, dt, frozen) {
     const p = G.p;
     for (const f of G.fx) {
       f.t += dt;
@@ -694,6 +746,7 @@
           break;
         }
         case 'ghost': if (f.t >= 0.5) f.dead = true; break;
+        case 'beam': case 'wipe': case 'bsod': case 'flash': if (f.t >= f.dur) f.dead = true; break;
         default: f.dead = true;
       }
     }
@@ -715,6 +768,7 @@
         if (Math.hypot(e.x - s.x, e.y - s.y) < e.r + s.r) {
           s.hits.push(e.id);
           hurtEnemy(G, e, s.dmg, Math.atan2(s.vy, s.vx), 90);
+          if (s.fork > 0) forkShot(G, s, e.id);
           if (s.pierce-- <= 0) { s.dead = true; stop = true; }
         }
       });
@@ -722,13 +776,14 @@
       if (!s.dead && b && !b.dead && s.hits.indexOf(b.id) < 0 && Math.hypot(b.x - s.x, b.y - s.y) < b.r + s.r) {
         s.hits.push(b.id);
         hurtEnemy(G, b, s.dmg, 0, 0);
+        if (s.fork > 0) forkShot(G, s, b.id);
         if (s.pierce-- <= 0) s.dead = true;
       }
     }
     compact(G.shots);
 
-    // Enemy shots
-    for (const s of G.eshots) {
+    // Enemy shots (suspended while time is frozen)
+    if (!frozen) for (const s of G.eshots) {
       s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
       if (s.life <= 0) { s.dead = true; continue; }
       if (Math.hypot(p.x - s.x, p.y - s.y) < PLAYER_R + s.r) {
@@ -739,7 +794,7 @@
     compact(G.eshots);
 
     // Hazards (boss bands)
-    for (const h of G.hazards) {
+    if (!frozen) for (const h of G.hazards) {
       h.t += dt;
       if (h.t > h.tele + h.act) { h.dead = true; continue; }
       if (h.t >= h.tele) {
@@ -767,6 +822,8 @@
 
   // ------------------------------------------------------------------ pickups / xp
   function addXp(G, v) {
+    if (OW.powers) OW.powers.onBit(G, v);
+    v *= G.mx.xp;
     G.xp += v;
     G.bitsCollected += v;
     let need = OW.xpNeed(G.level);
@@ -780,7 +837,7 @@
 
   function updPickups(G, dt) {
     const p = G.p;
-    const radius = 62 * G.mod.mag;
+    const radius = 62 * G.mod.mag * G.mx.mag;
     for (const b of G.bits) {
       const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy);
       if (b.kind === 'chest' || b.kind === 'heal' || b.kind === 'magnet') {
@@ -849,6 +906,7 @@
     else if (c.kind === 'pas') {
       G.pas[c.id] = (G.pas[c.id] || 0) + 1;
       if (c.id === 'integrity') { G.p.maxhp += 20; G.p.hp = Math.min(G.p.maxhp, G.p.hp + 20); }
+      if (OW.powers) OW.powers.onPassive(G, c.id);
     } else if (c.kind === 'heal') G.p.hp = Math.min(G.p.maxhp, G.p.hp + 30);
     else if (c.kind === 'bytes') G.bonusBytes = (G.bonusBytes || 0) + 25;
     recalc(G);
@@ -878,6 +936,8 @@
     if (G.choices) return;
     const p = G.p;
     G.t += dt;
+    if (OW.powers) OW.powers.pre(G, dt, inp);
+    const frozen = G.freeze > 0;
 
     // Movement
     let dx = inp.dx || 0, dy = inp.dy || 0;
@@ -889,39 +949,26 @@
     if (Math.hypot(p.cox, p.coy) > 4) p.aim = Math.atan2(p.coy, p.cox);
     p.fx = Math.cos(p.aim); p.fy = Math.sin(p.aim);
     p.face = Math.cos(p.aim) >= 0 ? 1 : -1;
-    const spd = 150 * G.mod.spd;
+    const spd = 150 * G.mod.spd * G.mx.spd * (p.spdMul || 1);
     p.x += dx * spd * dt; p.y += dy * spd * dt;
     if (p.invuln > 0) p.invuln -= dt;
     if (p.dashCd > 0) p.dashCd -= dt;
     if (G.shake > 0) G.shake = Math.max(0, G.shake - 30 * dt);
     if (G.glitch > 0) G.glitch -= dt;
 
-    // CTRL+Z: rewind position AND integrity to ~1s ago.
+    // Position/integrity history (about 2s) for ctrl+z, ctrl+s and Shadow Copy.
     p.histT -= dt;
     if (p.histT <= 0) {
       p.histT = 0.05;
       p.hist.push({ x: p.x, y: p.y, hp: p.hp });
-      if (p.hist.length > 20) p.hist.shift();
-    }
-    if (inp.dash && p.dashCd <= 0 && p.hist.length) {
-      const h = p.hist[0];
-      G.fx.push({ k: 'ghost', t: 0, x0: p.x, y0: p.y, x1: h.x, y1: h.y });
-      p.x = h.x; p.y = h.y;
-      const healed = Math.max(0, h.hp - p.hp);
-      p.hp = Math.max(p.hp, Math.min(p.maxhp, h.hp));
-      p.invuln = Math.max(p.invuln, 0.7);
-      p.dashCd = 14;
-      p.hist.length = 0;
-      G.shake = Math.max(G.shake, 4);
-      snd(G, 'dash');
-      msg(G, healed > 0 ? 'CTRL+Z  (+' + Math.round(healed) + ' integrity)' : 'CTRL+Z', '#8ab4ff', 1.4);
+      if (p.hist.length > 45) p.hist.shift();
     }
 
-    director(G, dt);
+    if (!frozen) director(G, dt);
     buildGrid(G);
     updWeapons(G, dt);
 
-    for (let i = 0; i < G.enemies.length; i++) {
+    if (!frozen) for (let i = 0; i < G.enemies.length; i++) {
       const e = G.enemies[i];
       if (!e.dead) updEnemy(G, e, dt);
     }
@@ -942,16 +989,17 @@
       });
     }
 
-    updFx(G, dt);
+    updFx(G, dt, frozen);
+    if (OW.powers) OW.powers.post(G, dt);
 
-    // Contact damage
+    // Contact damage (nothing touches you while time is frozen)
     const ds = dscale(G);
-    near(G, p.x, p.y, PLAYER_R + 24, (e) => {
+    if (!frozen) near(G, p.x, p.y, PLAYER_R + 24, (e) => {
       if (e.type === 'trojan') return;
       if (Math.hypot(e.x - p.x, e.y - p.y) < e.r + PLAYER_R) hurtPlayer(G, e.def.dmg * ds);
     });
     const b = G.boss;
-    if (b && !b.dead && !(b.intro > 0)) {
+    if (b && !b.dead && !(b.intro > 0) && !frozen) {
       if (Math.hypot(b.x - p.x, b.y - p.y) < b.r + PLAYER_R) hurtPlayer(G, (b.mode === 'charge' ? 26 : b.def.dmg) * ds);
     }
 
@@ -972,4 +1020,8 @@
   };
 
   OW.hurtEnemyDebug = hurtEnemy;
+  OW.core = {
+    snd, msg, text, burstChars, hurtEnemy, killEnemy, mkEnemy, nearest, near, targetable, addXp, dropBit, hurtPlayer,
+    FIRE, compact, recalc, ringPos, buildGrid, PLAYER_R, artSize, rr, pick, TAU,
+  };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
